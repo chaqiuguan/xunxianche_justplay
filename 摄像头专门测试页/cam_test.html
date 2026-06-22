@@ -48,6 +48,10 @@ h1{text-align:center;font-size:18px;padding:8px 0;color:#fff}
   <span style="font-size:13px;color:#909399">延迟模式:</span>
   <button class="mode-btn" id="btnFlv" onclick="switchMode('flv')">🚀 低延迟 (FLV)</button>
   <button class="mode-btn active" id="btnHls" onclick="switchMode('hls')">🐢 高延迟 (HLS)</button>
+  <button class="toggle-btn on" id="speedToggle" onclick="toggleSpeed()" style="padding:5px 14px;border:1px solid #409eff;border-radius:14px;background:#409eff;color:#fff;cursor:pointer;font-size:12px;margin-left:12px">📊 实时测速: 开</button>
+</div>
+<div class="mode-bar" id="camToggles">
+  <span style="font-size:11px;color:#888">摄像头:</span>
 </div>
 
 <!-- HLS annotation -->
@@ -95,6 +99,71 @@ var cameras = [
 
 var currentMode = 'hls';
 var players = {};
+var speedEnabled = true;
+var speedHistory = {};
+var camEnabled = [true, true, true, true];
+
+function toggleCam(i) {
+  camEnabled[i] = !camEnabled[i];
+  var btns = document.getElementById('camToggles').querySelectorAll('button');
+  if (camEnabled[i]) {
+    if (btns[i]) { btns[i].textContent = '📷 ' + cameras[i].name + ': 开'; btns[i].className = 'toggle-btn on'; }
+    log('cam'+(i+1)+' 启用', 'info');
+    startCamera(i);
+  } else {
+    if (btns[i]) { btns[i].textContent = '📷 ' + cameras[i].name + ': 关'; btns[i].className = 'toggle-btn'; }
+    stopCamera(i);
+    var tag = document.getElementById('tag'+i); if (tag) { tag.textContent = '⏸ 已禁用'; tag.style.color = '#909399'; }
+    var panel = document.getElementById('p'+i); if (panel) panel.className = 'panel';
+    var msg = document.getElementById('msg'+i); if (msg) { msg.innerHTML = '<span class="icon">⏸</span>已禁用'; msg.style.display = ''; }
+    var v = document.getElementById('v'+i); if (v) v.style.display = 'none';
+    log('cam'+(i+1)+' 禁用', 'info');
+  }
+}
+
+// Speed toggle
+function toggleSpeed() {
+  speedEnabled = !speedEnabled;
+  var btn = document.getElementById('speedToggle');
+  btn.textContent = '📊 实时测速: ' + (speedEnabled ? '开' : '关');
+  btn.style.background = speedEnabled ? '#409eff' : 'transparent';
+  btn.style.color = speedEnabled ? '#fff' : '#409eff';
+  cameras.forEach(function(c, i) {
+    var ov = document.getElementById('speed'+i);
+    var fp = document.getElementById('fps'+i);
+    if (ov) ov.style.display = speedEnabled ? '' : 'none';
+    if (fp) fp.style.display = speedEnabled ? '' : 'none';
+  });
+}
+
+function updateSpeed(i, kbPerSec, fpsVal, resW, resH, videoEl) {
+  if (!speedEnabled) return;
+  var ov = document.getElementById('speed'+i), fp = document.getElementById('fps'+i), fill = document.getElementById('fpsFill'+i);
+  // Speed + resolution
+  if (ov) {
+    var s = kbPerSec >= 1000 ? (kbPerSec/1000).toFixed(1)+' MB/s' : kbPerSec.toFixed(0)+' KB/s';
+    var r = resW > 0 ? '<span style="color:#67c23a">'+resW+'x'+resH+'</span>' : '--';
+    ov.innerHTML = '📥 ' + (kbPerSec > 10 ? '<span style="color:#67c23a">'+s+'</span>' : (kbPerSec>0?'<span style="color:#e6a23c">'+s+'</span>':s)) + ' &nbsp;📐 ' + r;
+  }
+  // Latency estimate from buffer
+  if (fp && videoEl) {
+    var v = videoEl;
+    var latSec = 0, latLabel = '--', latColor = '#67c23a';
+    if (v.buffered && v.buffered.length > 0) {
+      latSec = Math.max(0, v.buffered.end(v.buffered.length-1) - v.currentTime);
+    }
+    if (latSec > 0) {
+      latLabel = latSec.toFixed(1)+'s';
+      latColor = latSec < 2 ? '#67c23a' : (latSec < 5 ? '#e6a23c' : '#f56c6c');
+    }
+    fp.querySelector('.val').textContent = latLabel;
+    fp.querySelector('.val').style.color = latColor;
+    if (fill) {
+      fill.style.width = Math.min(latSec/5*100, 100) + '%';
+      fill.style.background = latColor;
+    }
+  }
+}
 
 // Log
 function log(msg, cls) {
@@ -121,10 +190,17 @@ cameras.forEach(function(c, i) {
     '<div class="ph"><b>📷 '+c.name+'</b><span id="tag'+i+'" style="font-size:11px;color:#909399">等待</span></div>'+
     '<div class="vbox">'+
     '<video id="v'+i+'" autoplay muted playsinline></video>'+
+    '<div class="speed-ov show" id="speed'+i+'" style="position:absolute;top:6px;left:6px;background:rgba(0,0,0,.7);color:#fff;padding:4px 8px;border-radius:4px;font-size:10px;font-family:Consolas,monospace;pointer-events:none;z-index:3;line-height:1.5"><span style="color:#888">⏳</span> 等待...</div>'+
+    '<div class="fps-gauge show" id="fps'+i+'" style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,.7);color:#fff;padding:4px 8px;border-radius:4px;font-size:10px;font-family:Consolas,monospace;pointer-events:none;z-index:3">延迟 <span class="val" style="color:#67c23a">--</span><span style="display:inline-block;width:40px;height:6px;background:#333;border-radius:3px;vertical-align:middle;margin-left:4px;overflow:hidden"><span id="fpsFill'+i+'" style="display:block;height:100%;background:#67c23a;border-radius:3px;width:0%"></span></span></div>'+
     '<div class="msg" id="msg'+i+'"><span class="icon">🎥</span>加载中...</div>'+
     '</div>'+
     '<div class="foot"><span id="footL'+i+'">--</span><span id="footR'+i+'"></span></div>'+
     '</div>';
+  var btn = document.createElement('button');
+  btn.textContent = '📷 ' + cameras[i].name + ': 开';
+  btn.className = 'toggle-btn on'; btn.style.fontSize = '11px';
+  btn.onclick = (function(idx) { return function() { toggleCam(idx); }; })(i);
+  document.getElementById('camToggles').appendChild(btn);
 });
 
 // Mode switching
@@ -137,11 +213,13 @@ function switchMode(mode) {
   document.getElementById('noteHls').className = 'annotation' + (mode==='hls'?' show':'');
   document.getElementById('noteFlv').className = 'annotation' + (mode==='flv'?' show':'');
 
-  // Restart all cameras with new mode
+  // Restart all ENABLED cameras with new mode
   var modeLabel = mode === 'hls' ? '高延迟 HLS' : '低延迟 FLV';
   document.getElementById('logModeLabel').textContent = '当前: ' + modeLabel;
   log('=== 切换到 ' + modeLabel + ' ===', 'info');
-  cameras.forEach(function(c, i) { startCamera(i); });
+  cameras.forEach(function(c, i) {
+    if (camEnabled[i]) { startCamera(i); }
+  });
 }
 
 // Start a single camera
@@ -177,6 +255,18 @@ function startHls(i, c, video, tag, msg, panel, footL, footR) {
   if (typeof Hls !== 'undefined' && Hls.isSupported()) {
     var hls = new Hls({ liveDurationInfinity: true, maxBufferLength: 30 });
     players[i] = { type: 'hls', instance: hls };
+
+    var hlsSpeedData = { lastSegTime: Date.now(), segBytes: 0 };
+    hls.on(Hls.Events.FRAG_LOADED, function(ev, data) {
+      var now = Date.now();
+      var loadTime = (now - hlsSpeedData.lastSegTime) / 1000;
+      if (loadTime > 0.1 && data.frag && data.frag.loader) {
+        var bytes = data.frag.stats ? data.frag.stats.total : (data.frag.loader._bytesLoaded || 0);
+        var kbSec = (bytes / 1024) / loadTime;
+        updateSpeed(i, kbSec, 0, video.videoWidth, video.videoHeight, video);
+        hlsSpeedData = { lastSegTime: now, segBytes: bytes };
+      }
+    });
 
     hls.on(Hls.Events.MANIFEST_PARSED, function() {
       video.play();
@@ -253,6 +343,7 @@ function startFlv(i, c, video, tag, msg, panel, footL, footR) {
     player.on(mpegts.Events.STATISTICS_INFO, function(s) {
       var el = (Date.now() - t0) / 1000;
       footR.textContent = '📥' + (s.speed||0).toFixed(0) + 'KB/s | ⏱' + el.toFixed(0) + 's';
+      updateSpeed(i, s.speed||0, s.decodeFps||0, video.videoWidth, video.videoHeight, video);
     });
 
     var t0 = Date.now();
@@ -300,9 +391,16 @@ function stopCamera(i) {
   if (video) { video.pause(); video.src = ''; video.srcObject = null; }
 }
 
-// Start all on load
+// Start all enabled cameras on load
 window.addEventListener('DOMContentLoaded', function() {
-  cameras.forEach(function(c, i) { startCamera(i); });
+  cameras.forEach(function(c, i) {
+    if (camEnabled[i]) { startCamera(i); }
+    else {
+      document.getElementById('tag'+i).textContent = '⏸ 已禁用';
+      document.getElementById('tag'+i).style.color = '#909399';
+      document.getElementById('msg'+i).innerHTML = '<span class="icon">⏸</span>已禁用';
+    }
+  });
 });
 </script>
 </body>

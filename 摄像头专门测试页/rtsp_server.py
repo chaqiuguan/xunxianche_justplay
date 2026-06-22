@@ -30,8 +30,8 @@ def start_hls(name, rtsp_url, index):
     cmd = [
         FFMPEG, '-rtsp_transport', 'tcp', '-i', rtsp_url,
         '-c:v', 'copy', '-an',
-        '-hls_time', '2', '-hls_list_size', '5',
-        '-hls_flags', 'delete_segments+append_list',
+        '-hls_time', '2', '-hls_list_size', '12',
+        '-hls_flags', 'omit_endlist+append_list',
         '-hls_segment_filename', os.path.join(cam_dir, 'seg_%03d.ts'),
         os.path.join(cam_dir, 'index.m3u8'),
     ]

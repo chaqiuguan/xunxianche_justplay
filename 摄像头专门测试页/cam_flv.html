@@ -9,7 +9,10 @@
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#1a1a2e;color:#e0e0e0;font-family:'Microsoft YaHei',Arial,sans-serif;min-height:100vh;padding:10px}
 h1{text-align:center;font-size:17px;padding:6px 0;color:#fff}
-.subtitle{text-align:center;font-size:11px;color:#888;margin-bottom:8px}
+.subtitle{text-align:center;font-size:11px;color:#888;margin-bottom:6px}
+.toolbar{display:flex;gap:10px;justify-content:center;align-items:center;margin-bottom:8px}
+.toggle-btn{padding:5px 14px;border:1px solid #409eff;border-radius:14px;background:transparent;color:#409eff;cursor:pointer;font-size:12px;transition:all .2s}
+.toggle-btn.on{background:#409eff;color:#fff}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(460px,1fr));gap:8px;margin-bottom:8px}
 .panel{background:#16213e;border:2px solid #0f3460;border-radius:6px;overflow:hidden}
 .panel.ok{border-color:#67c23a}.panel.err{border-color:#f56c6c}.panel.wait{border-color:#e6a23c}
@@ -18,14 +21,21 @@ h1{text-align:center;font-size:17px;padding:6px 0;color:#fff}
 .vbox video{width:100%;height:100%;object-fit:contain}
 .vbox .msg{text-align:center;color:#666;font-size:12px;position:absolute}
 .vbox .msg .icon{font-size:36px;display:block;margin-bottom:4px}
+/* Speed overlay */
+.speed-overlay{position:absolute;top:6px;left:6px;background:rgba(0,0,0,.7);color:#fff;padding:4px 8px;border-radius:4px;font-size:10px;line-height:1.5;font-family:Consolas,monospace;pointer-events:none;display:none;z-index:3}
+.speed-overlay.show{display:block}
+.speed-overlay .val{color:#67c23a}
+.speed-overlay .warn{color:#e6a23c}
+/* FPS gauge */
+.fps-gauge{position:absolute;top:6px;right:6px;background:rgba(0,0,0,.7);color:#fff;padding:4px 8px;border-radius:4px;font-size:10px;font-family:Consolas,monospace;pointer-events:none;display:none;z-index:3}
+.fps-gauge.show{display:block}
+.fps-gauge .bar{display:inline-block;width:40px;height:6px;background:#333;border-radius:3px;vertical-align:middle;margin-left:4px;overflow:hidden}
+.fps-gauge .bar .fill{display:block;height:100%;background:#67c23a;border-radius:3px;transition:width .3s}
 .foot{padding:4px 10px;font-size:10px;color:#888;background:rgba(0,0,0,.2);display:flex;justify-content:space-between}
 .g{color:#67c23a}.r{color:#f56c6c}.y{color:#e6a23c}
-
-/* Log panel */
 #logWrap{max-width:100%;margin:0 auto;background:#0f3460;border-radius:6px;overflow:hidden}
 #logHead{padding:6px 12px;background:rgba(0,0,0,.2);font-size:12px;display:flex;justify-content:space-between;align-items:center}
 #log{height:180px;overflow-y:auto;padding:8px 12px;font-size:10px;line-height:1.6;font-family:Consolas,monospace;white-space:pre-wrap;word-break:break-all;color:#ccc}
-.log-line{margin:0}.log-line .ts{color:#666}.log-line.ok{color:#67c23a}.log-line.err{color:#f56c6c}.log-line.info{color:#409eff}
 </style>
 </head>
 <body>
@@ -33,6 +43,12 @@ h1{text-align:center;font-size:17px;padding:6px 0;color:#fff}
 <div class="subtitle">
   RTSP (H.264) → ffmpeg → FLV → Python HTTP → mpegts.js (MSE) → &lt;video&gt;
   &nbsp;|&nbsp; 预期延迟 <span class="g">1~3 秒</span>
+</div>
+<div class="toolbar">
+  <button class="toggle-btn on" id="speedToggle" onclick="toggleSpeed()">📊 实时测速: 开</button>
+</div>
+<div class="toolbar" id="camToggles">
+  <span style="font-size:11px;color:#888">摄像头:</span>
 </div>
 <div class="grid" id="grid"></div>
 
@@ -52,7 +68,9 @@ var cameras = [
   {name:'摄像头4', url:'/flv/cam4'},
 ];
 var players = {};
-var statsTimers = {};
+var speedEnabled = true;
+var speedHistory = {};
+var camEnabled = [true, true, true, true]; // all on by default // per-camera speed data
 
 // ===== Log =====
 function log(msg, cls) {
@@ -62,11 +80,26 @@ function log(msg, cls) {
   var line = document.createElement('div');
   line.className = 'log-line' + (cls ? ' '+cls : '');
   line.innerHTML = '<span class="ts">'+ts+'</span> ' + msg;
-  // Only auto-scroll if user is already near the bottom (within 40px)
   var atBottom = (el.scrollHeight - el.scrollTop - el.clientHeight) < 40;
   el.appendChild(line);
   if (atBottom) { el.scrollTop = el.scrollHeight; }
   console.log(ts + ' ' + msg);
+}
+
+// ===== Speed toggle =====
+function toggleSpeed() {
+  speedEnabled = !speedEnabled;
+  var btn = document.getElementById('speedToggle');
+  btn.textContent = '📊 实时测速: ' + (speedEnabled ? '开' : '关');
+  btn.className = 'toggle-btn' + (speedEnabled ? ' on' : '');
+  // Show/hide all speed overlays
+  cameras.forEach(function(c, i) {
+    var ov = document.getElementById('speed'+i);
+    var fps = document.getElementById('fps'+i);
+    if (ov) ov.className = 'speed-overlay' + (speedEnabled ? ' show' : '');
+    if (fps) fps.className = 'fps-gauge' + (speedEnabled ? ' show' : '');
+  });
+  log('测速面板: ' + (speedEnabled ? '开' : '关'), 'info');
 }
 
 // ===== Build UI =====
@@ -77,11 +110,40 @@ cameras.forEach(function(c, i) {
     '<div class="ph"><b>📷 '+c.name+'</b><span id="tag'+i+'" style="font-size:11px">等待</span></div>'+
     '<div class="vbox">'+
     '<video id="v'+i+'" autoplay muted playsinline></video>'+
+    '<div class="speed-overlay show" id="speed'+i+'"><span style="color:#888">⏳</span> 等待数据...</div>'+
+    '<div class="fps-gauge show" id="fps'+i+'">延迟 <span class="val" style="color:#67c23a">--</span><span class="bar"><span class="fill" id="latFill'+i+'" style="width:0%"></span></span></div>'+
     '<div class="msg" id="msg'+i+'"><span class="icon">🎥</span>等待连接...</div>'+
     '</div>'+
     '<div class="foot"><span id="ftL'+i+'">FLV | '+c.url+'</span><span id="ftR'+i+'">--</span></div>'+
     '</div>';
+  speedHistory[i] = [];
+  // Camera toggle buttons
+  var btn = document.createElement('button');
+  btn.textContent = '📷 ' + c.name + ': 开';
+  btn.className = 'toggle-btn on';
+  btn.style.fontSize = '11px';
+  btn.onclick = (function(idx) { return function() { toggleCam(idx); }; })(i);
+  document.getElementById('camToggles').appendChild(btn);
 });
+
+function toggleCam(i) {
+  camEnabled[i] = !camEnabled[i];
+  var btns = document.getElementById('camToggles').querySelectorAll('button');
+  var c = cameras[i];
+  if (camEnabled[i]) {
+    if (btns[i]) { btns[i].textContent = '📷 ' + c.name + ': 开'; btns[i].className = 'toggle-btn on'; }
+    log('cam'+(i+1)+' 启用', 'info');
+    startCamera(i);
+  } else {
+    if (btns[i]) { btns[i].textContent = '📷 ' + c.name + ': 关'; btns[i].className = 'toggle-btn'; }
+    stopCamera(i);
+    var tag = document.getElementById('tag'+i); if (tag) { tag.textContent = '⏸ 已禁用'; tag.style.color = '#909399'; }
+    var panel = document.getElementById('p'+i); if (panel) panel.className = 'panel';
+    var msg = document.getElementById('msg'+i); if (msg) { msg.innerHTML = '<span class="icon">⏸</span>已禁用'; msg.style.display = ''; }
+    var v = document.getElementById('v'+i); if (v) v.style.display = 'none';
+    log('cam'+(i+1)+' 禁用', 'info');
+  }
+}
 
 // ===== Start cameras =====
 log('=== 低延迟 FLV 模式启动 ===', 'info');
@@ -92,8 +154,73 @@ if (typeof mpegts === 'undefined' || !mpegts.isSupported()) {
   log('ERROR: 浏览器不支持 MSE，无法使用 FLV 模式', 'err');
 } else {
   cameras.forEach(function(c, i) {
-    setTimeout(function() { startCamera(i); }, i * 500);
+    if (camEnabled[i]) {
+      setTimeout(function() { startCamera(i); }, i * 800);
+    } else {
+      var tag = document.getElementById('tag'+i); if (tag) { tag.textContent = '⏸ 已禁用'; tag.style.color = '#909399'; }
+      var msg = document.getElementById('msg'+i); if (msg) { msg.innerHTML = '<span class="icon">⏸</span>已禁用'; msg.style.display = ''; }
+    }
   });
+}
+
+var firstByteTime = {}; // per-camera: timestamp of first received data
+var firstFrameTime = {}; // per-camera: timestamp of first decoded frame
+
+function updateSpeedOverlay(i, stats, video) {
+  if (!speedEnabled) return;
+  var ov = document.getElementById('speed'+i);
+  if (!ov) return;
+  var speed = stats.speed || 0;
+  var v = video || document.getElementById('v'+i);
+
+  // Track first byte time
+  if (!firstByteTime[i] && speed > 0) { firstByteTime[i] = Date.now(); }
+  // Track first frame time
+  if (!firstFrameTime[i] && v.videoWidth > 0) { firstFrameTime[i] = Date.now(); }
+
+  // Speed display
+  var speedStr = speed >= 1000 ? (speed/1000).toFixed(1)+' MB/s' : speed.toFixed(0)+' KB/s';
+  var speedCls = speed > 10 ? 'val' : (speed > 0 ? 'warn' : '');
+  var res = v.videoWidth > 0 ? '<span class="val">'+v.videoWidth+'x'+v.videoHeight+'</span>' : '--';
+  ov.innerHTML = '📥 ' + (speedCls ? '<span class="'+speedCls+'">'+speedStr+'</span>' : speedStr) + ' &nbsp;📐 ' + res;
+
+  // Latency estimate: buffered duration approximates pipeline delay
+  var latEl = document.getElementById('fps'+i);
+  var latFill = document.getElementById('latFill'+i);
+  var latencySec = 0;
+  var latencyLabel = '--';
+  var latencyColor = '#67c23a';
+
+  if (v.buffered && v.buffered.length > 0) {
+    // Buffered end - currentTime ≈ how far behind live we are
+    var bufEnd = v.buffered.end(v.buffered.length - 1);
+    var curTime = v.currentTime;
+    latencySec = Math.max(0, bufEnd - curTime);
+  }
+
+  if (latencySec > 0) {
+    latencyLabel = latencySec.toFixed(1) + 's';
+    if (latencySec < 2) latencyColor = '#67c23a';
+    else if (latencySec < 5) latencyColor = '#e6a23c';
+    else latencyColor = '#f56c6c';
+  } else if (firstFrameTime[i]) {
+    // Fallback: show time since first frame as pipeline estimate
+    latencySec = (Date.now() - firstFrameTime[i]) / 1000;
+    if (latencySec < 10) {
+      latencyLabel = '~' + latencySec.toFixed(0) + 's';
+      latencyColor = '#e6a23c';
+    }
+  }
+
+  if (latEl) {
+    latEl.querySelector('.val').textContent = latencyLabel;
+    latEl.querySelector('.val').style.color = latencyColor;
+  }
+  if (latFill) {
+    var pct = Math.min(latencySec / 5 * 100, 100); // 5s = full bar
+    latFill.style.width = pct + '%';
+    latFill.style.background = latencyColor;
+  }
 }
 
 function startCamera(i) {
@@ -110,26 +237,23 @@ function startCamera(i) {
   panel.className = 'panel wait';
   msg.style.display = ''; msg.innerHTML = '<span class="icon">🎥</span>正在连接...';
   video.style.display = 'none';
+  speedHistory[i] = [];
+  firstByteTime[i] = null; firstFrameTime[i] = null;
 
   log('cam'+(i+1)+' 开始连接: ' + c.url, 'info');
   var t0 = Date.now();
 
   try {
     var player = mpegts.createPlayer({
-      type: 'flv',
-      isLive: true,
-      url: c.url,
-      hasAudio: false,
-      hasVideo: true,
-      enableStashBuffer: false,
-      stashInitialSize: 128,
-      lazyLoad: false
+      type: 'flv', isLive: true, url: c.url,
+      hasAudio: false, hasVideo: true,
+      enableStashBuffer: false, stashInitialSize: 128, lazyLoad: false
     });
     players[i] = player;
 
     player.on(mpegts.Events.MEDIA_INFO, function(info) {
       var el = ((Date.now()-t0)/1000).toFixed(1);
-      log('cam'+(i+1)+' ✅ MEDIA_INFO ('+el+'s) ' + JSON.stringify(info), 'ok');
+      log('cam'+(i+1)+' ✅ MEDIA_INFO ('+el+'s)', 'ok');
       tag.textContent = '✅ FLV'; tag.style.color = '#67c23a';
       panel.className = 'panel ok';
       msg.style.display = 'none';
@@ -140,6 +264,8 @@ function startCamera(i) {
     player.on(mpegts.Events.STATISTICS_INFO, function(s) {
       var el = ((Date.now()-t0)/1000).toFixed(0);
       ftR.textContent = '📥'+(s.speed||0).toFixed(0)+'KB/s | fps:'+(s.decodeFps||0).toFixed(0)+' | '+el+'s';
+      updateSpeedOverlay(i, s, video);
+      // Auto-detect video rendering
       if (video.videoWidth > 0 && tag.textContent.indexOf('✅') < 0) {
         tag.textContent = '✅ FLV'; tag.style.color = '#67c23a';
         panel.className = 'panel ok';
@@ -148,9 +274,7 @@ function startCamera(i) {
       }
     });
 
-    var reconnectCount = 0;
-    var maxReconnect = 20;
-
+    var reconnectCount = 0, maxReconnect = 20;
     player.on(mpegts.Events.ERROR, function(type, info) {
       log('cam'+(i+1)+' ❌ ERROR: '+type+' '+JSON.stringify(info), 'err');
       tag.textContent = '❌ '+type; tag.style.color = '#f56c6c';
@@ -158,44 +282,35 @@ function startCamera(i) {
       ftR.textContent = 'ERR: ' + type;
       msg.innerHTML = '<span class="icon">❌</span>'+type;
       msg.style.display = '';
-
-      // Auto-reconnect after delay
       if (reconnectCount < maxReconnect) {
         reconnectCount++;
         var delay = Math.min(1000 * reconnectCount, 10000);
-        log('cam'+(i+1)+' 🔄 '+reconnectCount+'/'+maxReconnect+' 重连, '+ (delay/1000).toFixed(0) + 's 后...', 'info');
+        log('cam'+(i+1)+' 🔄 '+reconnectCount+'/'+maxReconnect+' 重连, '+ (delay/1000).toFixed(0) + 's...', 'info');
         stopCamera(i);
         setTimeout(function() { startCamera(i); }, delay);
       } else {
-        log('cam'+(i+1)+' ⛔ 重连次数耗尽', 'err');
+        log('cam'+(i+1)+' ⛔ 重连耗尽', 'err');
       }
     });
 
     player.on(mpegts.Events.LOADING_COMPLETE, function() {
-      log('cam'+(i+1)+' LOADING_COMPLETE (流结束)', 'info');
+      log('cam'+(i+1)+' LOADING_COMPLETE', 'info');
     });
 
     player.attachMediaElement(video);
     player.load();
 
   } catch(e) {
-    log('cam'+(i+1)+' ❌ 异常: ' + e.message, 'err');
-    // Also reconnect on exception
-    var delay2 = 3000;
-    log('cam'+(i+1)+' 🔄 异常重连, '+ (delay2/1000).toFixed(0) + 's 后...', 'info');
+    log('cam'+(i+1)+' ❌ 异常: '+e.message, 'err');
+    var d = 3000;
+    log('cam'+(i+1)+' 🔄 异常重连, '+ (d/1000).toFixed(0) + 's...', 'info');
     stopCamera(i);
-    setTimeout(function() { startCamera(i); }, delay2);
-    tag.textContent = '❌'; tag.style.color = '#f56c6c';
-    panel.className = 'panel err';
-    ftR.textContent = 'EX: '+e.message;
+    setTimeout(function() { startCamera(i); }, d);
   }
 }
 
 function stopCamera(i) {
-  if (players[i]) {
-    try { players[i].destroy(); } catch(e) {}
-    players[i] = null;
-  }
+  if (players[i]) { try { players[i].destroy(); } catch(e) {} players[i] = null; }
   var v = document.getElementById('v'+i);
   if (v) { v.pause(); v.src = ''; }
 }
