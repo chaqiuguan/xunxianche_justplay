@@ -1,12 +1,18 @@
 """
-RTSP → HLS relay. Each camera gets HLS segments served via HTTP.
-Open http://127.0.0.1:8088/cam_test.html in browser.
+RTSP → HLS + FLV 双模 relay server.
+HLS: ffmpeg → .ts → Python serves files → hls.js
+FLV: GET /flv/cam1 → Python spawns ffmpeg → pipes FLV → mpegts.js
 """
-import subprocess, sys, os, shutil, time
-from http.server import HTTPServer, SimpleHTTPRequestHandler
+import subprocess, sys, os, shutil, time, threading, urllib.parse
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from socketserver import ThreadingMixIn
+
+class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
+    pass
 
 FFMPEG = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ffmpeg.exe')
 HLS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'hls_output')
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 PORT = 8088
 
 CAMERAS = [
@@ -16,93 +22,143 @@ CAMERAS = [
     ('摄像头4', 'rtsp://admin:Admin123@192.168.2.11:554'),
 ]
 
-processes = []
-
-def start_camera(name, rtsp_url, index):
-    """Run ffmpeg to convert RTSP → HLS segments."""
+def start_hls(name, rtsp_url, index):
     cam_dir = os.path.join(HLS_DIR, f'cam{index}')
     os.makedirs(cam_dir, exist_ok=True)
-    # Clean old segments
     for f in os.listdir(cam_dir):
         os.remove(os.path.join(cam_dir, f))
-
-    m3u8_path = os.path.join(cam_dir, 'index.m3u8')
-
     cmd = [
-        FFMPEG,
-        '-rtsp_transport', 'tcp',
-        '-i', rtsp_url,
-        '-c:v', 'copy',           # Copy H.264 without re-encoding
-        '-an',                      # No audio
-        '-hls_time', '2',           # 2-second segments
-        '-hls_list_size', '5',      # Keep 5 segments in playlist
+        FFMPEG, '-rtsp_transport', 'tcp', '-i', rtsp_url,
+        '-c:v', 'copy', '-an',
+        '-hls_time', '2', '-hls_list_size', '5',
         '-hls_flags', 'delete_segments+append_list',
         '-hls_segment_filename', os.path.join(cam_dir, 'seg_%03d.ts'),
-        m3u8_path,
+        os.path.join(cam_dir, 'index.m3u8'),
     ]
-
-    print(f'[{name}] Starting HLS: {rtsp_url}')
+    print(f'[HLS] {name} started')
     while True:
         try:
             proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            processes.append(proc)
             proc.wait()
-            print(f'[{name}] ffmpeg stopped (code={proc.returncode}), restarting in 2s...')
+            print(f'[HLS] {name} ffmpeg stopped (code={proc.returncode}), restart in 2s')
             time.sleep(2)
         except Exception as e:
-            print(f'[{name}] Error: {e}')
+            print(f'[HLS] {name} error: {e}')
             time.sleep(2)
 
-class CORSHandler(SimpleHTTPRequestHandler):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, directory=os.path.dirname(os.path.abspath(__file__)), **kwargs)
+def stream_flv(rtsp_url, wfile):
+    cmd = [FFMPEG, '-fflags', 'nobuffer', '-flags', 'low_delay',
+           '-rtsp_transport', 'tcp', '-i', rtsp_url,
+           '-c:v', 'copy', '-an', '-f', 'flv', 'pipe:1']
+    try:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        while True:
+            data = proc.stdout.read(8192)
+            if not data: break
+            try:
+                wfile.write(data)
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                break
+        proc.terminate()
+        proc.wait()
+    except Exception as e:
+        print(f'[FLV] stream error: {e}')
 
-    def end_headers(self):
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, fmt, *args):
+        # Filter out noise
+        msg = args[0] if args else ''
+        if '/flv/' not in str(msg) and '/hls_output/' not in str(msg):
+            print(f'[HTTP] {self.command} {self.path} -> {msg}')
+
+    def send_cors(self):
         self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Cache-Control', 'no-cache')
-        super().end_headers()
+        self.send_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', '*')
 
-    def log_message(self, format, *args):
-        # Quieter logging
-        if '/hls_output/' in str(args):
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.send_cors()
+        self.end_headers()
+
+    def do_GET(self):
+        path = self.path.split('?')[0]  # strip query string
+        print(f'[HTTP] GET {path}')
+
+        # === FLV streaming ===
+        if path.startswith('/flv/cam'):
+            try:
+                idx = int(path.split('/flv/cam')[1]) - 1
+                if 0 <= idx < len(CAMERAS):
+                    name, rtsp_url = CAMERAS[idx]
+                    print(f'[FLV] -> {name} (cam{idx+1})')
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'video/x-flv')
+                    self.send_header('Connection', 'close')
+                    self.send_cors()
+                    self.end_headers()
+                    stream_flv(rtsp_url, self.wfile)
+                    print(f'[FLV] {name} disconnected')
+                    return
+            except ValueError:
+                pass
+            self.send_error(400, 'Bad camera index')
             return
-        super().log_message(format, *args)
+
+        # === Static file serving ===
+        file_path = os.path.join(ROOT_DIR, path.lstrip('/'))
+        if os.path.isfile(file_path):
+            content_types = {
+                '.html': 'text/html', '.js': 'application/javascript',
+                '.css': 'text/css', '.m3u8': 'application/vnd.apple.mpegurl',
+                '.ts': 'video/mp2t', '.jpg': 'image/jpeg', '.png': 'image/png',
+                '.json': 'application/json',
+            }
+            ext = os.path.splitext(file_path)[1].lower()
+            ctype = content_types.get(ext, 'application/octet-stream')
+            try:
+                with open(file_path, 'rb') as f:
+                    data = f.read()
+                self.send_response(200)
+                self.send_header('Content-Type', ctype)
+                self.send_header('Content-Length', len(data))
+                self.send_header('Cache-Control', 'no-cache')
+                self.send_cors()
+                self.end_headers()
+                self.wfile.write(data)
+            except Exception as e:
+                self.send_error(500, str(e))
+            return
+
+        # 404
+        self.send_error(404, f'Not found: {path}')
 
 if __name__ == '__main__':
-    print('=== RTSP → HLS Relay ===')
-    print(f'ffmpeg: {FFMPEG} (OK: {os.path.exists(FFMPEG)})')
-    print(f'HLS dir: {HLS_DIR}')
+    print('=' * 55)
+    print('  RTSP → HLS / FLV  Relay  v2')
+    print('=' * 55)
 
-    # Clean and create HLS dirs
     if os.path.exists(HLS_DIR):
         shutil.rmtree(HLS_DIR)
     os.makedirs(HLS_DIR)
 
-    # Start ffmpeg for each camera
-    import threading
     for i, (name, url) in enumerate(CAMERAS):
-        t = threading.Thread(target=start_camera, args=(name, url, i+1), daemon=True)
-        t.start()
+        threading.Thread(target=start_hls, args=(name, url, i+1), daemon=True).start()
 
-    # Wait for ffmpeg to create first segments
-    print('\nWaiting for HLS segments (ffmpeg starting)...')
-    time.sleep(5)
-
-    # Check what was created
+    print('Waiting for HLS init...')
+    time.sleep(4)
     for i in range(1, 5):
-        cam_dir = os.path.join(HLS_DIR, f'cam{i}')
-        files = os.listdir(cam_dir) if os.path.exists(cam_dir) else []
-        print(f'  cam{i}: {len(files)} files - {files}')
+        d = os.path.join(HLS_DIR, f'cam{i}')
+        fs = os.listdir(d) if os.path.exists(d) else []
+        print(f'  HLS cam{i}: {fs}')
 
-    # Start HTTP server
-    print(f'\n=== HTTP server at http://127.0.0.1:{PORT} ===')
-    print(f'Open: http://127.0.0.1:{PORT}/cam_test.html\n')
+    print(f'\n  http://127.0.0.1:{PORT}/cam_flv.html   (低延迟 FLV)')
+    print(f'  http://127.0.0.1:{PORT}/cam_test.html   (双模)')
+    print(f'{"="*55}\n')
 
-    server = HTTPServer(('127.0.0.1', PORT), CORSHandler)
+    server = ThreadingHTTPServer(('127.0.0.1', PORT), Handler)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print('\nShutting down...')
-        for p in processes:
-            p.terminate()
+        print('\nShutdown.')
         server.shutdown()

@@ -3,13 +3,31 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>RTSP → HLS 摄像头测试</title>
+<title>摄像头测试 — HLS / FLV 双模</title>
 <script src="hls.min.js"></script>
+<script src="mpegts.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#1a1a2e;color:#e0e0e0;font-family:'Microsoft YaHei',Arial,sans-serif;min-height:100vh;padding:12px}
 h1{text-align:center;font-size:18px;padding:8px 0;color:#fff}
-.status{text-align:center;font-size:12px;color:#909399;margin:0 0 10px}
+
+/* Mode selector */
+.mode-bar{display:flex;gap:12px;justify-content:center;align-items:center;margin:0 0 8px}
+.mode-btn{padding:6px 20px;border:1px solid #409eff;border-radius:4px;background:transparent;color:#409eff;cursor:pointer;font-size:13px;transition:all .2s}
+.mode-btn.active{background:#409eff;color:#fff}
+.mode-btn:hover{opacity:.85}
+
+/* Annotation card */
+.annotation{max-width:960px;margin:0 auto 10px;background:#0f3460;border-radius:6px;padding:12px 16px;font-size:12px;line-height:1.7;display:none}
+.annotation.show{display:block}
+.annotation h3{font-size:14px;margin-bottom:4px}
+.annotation .tag{display:inline-block;padding:1px 8px;border-radius:3px;font-size:10px;margin-right:4px}
+.annotation .tag.green{background:rgba(103,194,58,.2);color:#67c23a}
+.annotation .tag.yellow{background:rgba(230,162,60,.2);color:#e6a23c}
+.annotation table{width:100%;border-collapse:collapse;margin-top:6px}
+.annotation td{padding:3px 8px;border-bottom:1px solid rgba(255,255,255,.06);font-size:11px}
+.annotation td:first-child{color:#888;width:90px}
+
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(460px,1fr));gap:10px}
 .panel{background:#16213e;border:2px solid #0f3460;border-radius:8px;overflow:hidden}
 .panel.ok{border-color:#67c23a}.panel.err{border-color:#f56c6c}
@@ -18,24 +36,84 @@ h1{text-align:center;font-size:18px;padding:8px 0;color:#fff}
 .vbox video{width:100%;height:100%;object-fit:contain}
 .vbox .msg{text-align:center;color:#666;font-size:13px;position:absolute}
 .vbox .msg .icon{font-size:40px;display:block;margin-bottom:6px}
-.foot{padding:6px 12px;font-size:11px;color:#888;background:rgba(0,0,0,.2)}
+.foot{padding:6px 12px;font-size:11px;color:#888;background:rgba(0,0,0,.2);display:flex;justify-content:space-between}
 .g{color:#67c23a}.r{color:#f56c6c}.y{color:#e6a23c}
 </style>
 </head>
 <body>
-<h1>📹 RTSP → HLS 摄像头 (ffmpeg 直连)</h1>
-<div class="status">
-  ffmpeg 直接从摄像头拉 RTSP (H.264) → HLS 分段 → 浏览器原生播放 | <span class="g">无需 WASM</span>
+<h1>📹 摄像头实时测试</h1>
+
+<!-- Mode selector -->
+<div class="mode-bar">
+  <span style="font-size:13px;color:#909399">延迟模式:</span>
+  <button class="mode-btn" id="btnFlv" onclick="switchMode('flv')">🚀 低延迟 (FLV)</button>
+  <button class="mode-btn active" id="btnHls" onclick="switchMode('hls')">🐢 高延迟 (HLS)</button>
 </div>
+
+<!-- HLS annotation -->
+<div class="annotation show" id="noteHls">
+  <h3>🐢 高延迟模式 — HLS</h3>
+  <table>
+    <tr><td>原理</td><td>ffmpeg 将 RTSP 流切成 2 秒一段的 .ts 文件 → Python HTTP 服务 → 浏览器 hls.js 播放</td></tr>
+    <tr><td>延迟</td><td><span class="tag yellow">5 ~ 15 秒</span>（视频攒够一个分段 + 网络传输 + 浏览器缓冲）</td></tr>
+    <tr><td>优点</td><td>稳定性高、有缓冲抗抖动、兼容所有浏览器、数据量小</td></tr>
+    <tr><td>适用</td><td>网络不稳定时、不需要实时操作的场景（如任务复盘查看）</td></tr>
+    <tr><td>数据流</td><td style="font-family:Consolas;font-size:10px">RTSP → ffmpeg → .ts 文件 → HTTP GET → hls.js → &lt;video&gt;</td></tr>
+  </table>
+</div>
+
+<!-- FLV annotation -->
+<div class="annotation" id="noteFlv">
+  <h3>🚀 低延迟模式 — HTTP-FLV</h3>
+  <table>
+    <tr><td>原理</td><td>ffmpeg 持续输出 FLV 流 → 浏览器 mpegts.js 通过 MSE 实时解码到 &lt;video&gt;</td></tr>
+    <tr><td>延迟</td><td><span class="tag green">1 ~ 3 秒</span>（仅网络传输 + 少量缓冲）</td></tr>
+    <tr><td>优点</td><td>延迟低、实时性好、画面即时反馈</td></tr>
+    <tr><td>缺点</td><td>网络波动可能导致画面卡顿或花屏、数据量稍大</td></tr>
+    <tr><td>适用</td><td>需要实时监控、操控车辆时使用</td></tr>
+    <tr><td>数据流</td><td style="font-family:Consolas;font-size:10px">RTSP → ffmpeg → FLV → HTTP 长连接 → mpegts.js → MSE → &lt;video&gt;</td></tr>
+  </table>
+</div>
+
 <div class="grid" id="grid"></div>
+
+<div id="logWrap" style="max-width:100%;background:#0f3460;border-radius:6px;overflow:hidden;margin-top:8px">
+  <div style="padding:6px 12px;background:rgba(0,0,0,.2);font-size:12px;display:flex;justify-content:space-between">
+    <b>📋 日志</b>
+    <span style="font-size:10px;color:#666" id="logModeLabel">当前: 高延迟 HLS</span>
+  </div>
+  <div id="log" style="height:160px;overflow-y:auto;padding:8px 12px;font-size:10px;line-height:1.6;font-family:Consolas,monospace;white-space:pre-wrap;word-break:break-all;color:#ccc"></div>
+</div>
+
 <script>
 var cameras = [
-  {name:'摄像头1', hls:'/hls_output/cam1/index.m3u8'},
-  {name:'摄像头2', hls:'/hls_output/cam2/index.m3u8'},
-  {name:'摄像头3', hls:'/hls_output/cam3/index.m3u8'},
-  {name:'摄像头4', hls:'/hls_output/cam4/index.m3u8'},
+  {name:'摄像头1', hls:'/hls_output/cam1/index.m3u8', flv:'/flv/cam1'},
+  {name:'摄像头2', hls:'/hls_output/cam2/index.m3u8', flv:'/flv/cam2'},
+  {name:'摄像头3', hls:'/hls_output/cam3/index.m3u8', flv:'/flv/cam3'},
+  {name:'摄像头4', hls:'/hls_output/cam4/index.m3u8', flv:'/flv/cam4'},
 ];
 
+var currentMode = 'hls';
+var players = {};
+
+// Log
+function log(msg, cls) {
+  var el = document.getElementById('log');
+  var now = new Date();
+  var ts = ('0'+now.getHours()).slice(-2)+':'+('0'+now.getMinutes()).slice(-2)+':'+('0'+now.getSeconds()).slice(-2);
+  var line = document.createElement('div');
+  line.style.margin = '0';
+  if (cls === 'ok') line.style.color = '#67c23a';
+  if (cls === 'err') line.style.color = '#f56c6c';
+  if (cls === 'info') line.style.color = '#409eff';
+  line.innerHTML = '<span style="color:#666">'+ts+'</span> ' + msg;
+  var atBottom = (el.scrollHeight - el.scrollTop - el.clientHeight) < 40;
+  el.appendChild(line);
+  if (atBottom) { el.scrollTop = el.scrollHeight; }
+  console.log(ts + ' ' + msg);
+}
+
+// Build grid
 var grid = document.getElementById('grid');
 cameras.forEach(function(c, i) {
   grid.innerHTML +=
@@ -45,73 +123,186 @@ cameras.forEach(function(c, i) {
     '<video id="v'+i+'" autoplay muted playsinline></video>'+
     '<div class="msg" id="msg'+i+'"><span class="icon">🎥</span>加载中...</div>'+
     '</div>'+
-    '<div class="foot" id="foot'+i+'">HLS: '+c.hls+'</div>'+
+    '<div class="foot"><span id="footL'+i+'">--</span><span id="footR'+i+'"></span></div>'+
     '</div>';
 });
 
-// Play each camera
-cameras.forEach(function(c, i) {
+// Mode switching
+function switchMode(mode) {
+  if (currentMode === mode) return;
+  currentMode = mode;
+
+  document.getElementById('btnHls').className = 'mode-btn' + (mode==='hls'?' active':'');
+  document.getElementById('btnFlv').className = 'mode-btn' + (mode==='flv'?' active':'');
+  document.getElementById('noteHls').className = 'annotation' + (mode==='hls'?' show':'');
+  document.getElementById('noteFlv').className = 'annotation' + (mode==='flv'?' show':'');
+
+  // Restart all cameras with new mode
+  var modeLabel = mode === 'hls' ? '高延迟 HLS' : '低延迟 FLV';
+  document.getElementById('logModeLabel').textContent = '当前: ' + modeLabel;
+  log('=== 切换到 ' + modeLabel + ' ===', 'info');
+  cameras.forEach(function(c, i) { startCamera(i); });
+}
+
+// Start a single camera
+function startCamera(i) {
+  stopCamera(i);
+  var c = cameras[i];
   var video = document.getElementById('v'+i);
   var tag = document.getElementById('tag'+i);
   var msg = document.getElementById('msg'+i);
   var panel = document.getElementById('p'+i);
-  var foot = document.getElementById('foot'+i);
+  var footL = document.getElementById('footL'+i);
+  var footR = document.getElementById('footR'+i);
 
-  // Use native HLS support (Safari) or hls.js polyfill
-  if (video.canPlayType('application/vnd.apple.mpegurl')) {
-    // Safari - native HLS
-    video.src = c.hls;
-    tag.textContent = '原生HLS';
-    tag.style.color = '#67c23a';
-  } else if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-    // Chrome/Firefox - hls.js
+  msg.style.display = '';
+  msg.innerHTML = '<span class="icon">🎥</span>连接中...';
+  video.style.display = 'none';
+  tag.textContent = '⏳';
+  tag.style.color = '#e6a23c';
+  panel.className = 'panel';
+
+  if (currentMode === 'hls') {
+    startHls(i, c, video, tag, msg, panel, footL, footR);
+  } else {
+    startFlv(i, c, video, tag, msg, panel, footL, footR);
+  }
+}
+
+// ---- HLS mode ----
+function startHls(i, c, video, tag, msg, panel, footL, footR) {
+  footL.textContent = 'HLS | ' + c.hls;
+  log('cam'+(i+1)+' HLS 连接: ' + c.hls, 'info');
+
+  if (typeof Hls !== 'undefined' && Hls.isSupported()) {
     var hls = new Hls({ liveDurationInfinity: true, maxBufferLength: 30 });
-    hls.loadSource(c.hls);
-    hls.attachMedia(video);
+    players[i] = { type: 'hls', instance: hls };
+
     hls.on(Hls.Events.MANIFEST_PARSED, function() {
       video.play();
-      tag.textContent = '✅';
+      tag.textContent = '✅ HLS';
       tag.style.color = '#67c23a';
       panel.className = 'panel ok';
+      msg.style.display = 'none';
+      video.style.display = '';
+      footR.textContent = 'OK';
+      log('cam'+(i+1)+' ✅ HLS MANIFEST_PARSED', 'ok');
     });
+
     hls.on(Hls.Events.ERROR, function(ev, data) {
+      log('cam'+(i+1)+' HLS err: '+data.type+'/'+data.details, 'err');
       if (data.fatal) {
         tag.textContent = '❌';
         tag.style.color = '#f56c6c';
         panel.className = 'panel err';
-        msg.innerHTML = '<span class="icon">❌</span>HLS error: '+data.details;
+        footR.textContent = 'ERR: ' + data.details;
+        msg.innerHTML = '<span class="icon">❌</span>' + data.details;
         msg.style.display = '';
       }
     });
-    video._hls = hls;
+
+    hls.loadSource(c.hls);
+    hls.attachMedia(video);
+  } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+    // Safari native HLS
+    video.src = c.hls;
+    players[i] = { type: 'hls_native', instance: null };
   } else {
-    tag.textContent = '❌ 不支持';
+    tag.textContent = '❌';
     tag.style.color = '#f56c6c';
+    footR.textContent = '不支持HLS';
     msg.innerHTML = '<span class="icon">❌</span>浏览器不支持HLS';
   }
 
-  // Monitor
   video.addEventListener('playing', function() {
     msg.style.display = 'none';
     video.style.display = '';
-    tag.textContent = '✅';
+    tag.textContent = '✅ HLS';
     tag.style.color = '#67c23a';
     panel.className = 'panel ok';
   });
-  video.addEventListener('error', function() {
-    tag.textContent = '⚠️';
-    tag.style.color = '#e6a23c';
-    foot.textContent = '等待HLS数据...';
-  });
+}
 
-  // Periodic status
-  setInterval(function() {
-    if (video.videoWidth > 0) {
-      foot.textContent = video.videoWidth + 'x' + video.videoHeight + ' | HLS OK';
-    } else {
-      foot.textContent = '等待数据... ' + c.hls;
-    }
-  }, 3000);
+// ---- FLV mode (low latency) ----
+function startFlv(i, c, video, tag, msg, panel, footL, footR) {
+  footL.textContent = 'FLV | ' + c.flv;
+  log('cam'+(i+1)+' FLV 连接: ' + c.flv, 'info');
+
+  if (typeof mpegts === 'undefined' || !mpegts.isSupported()) {
+    tag.textContent = '❌';
+    tag.style.color = '#f56c6c';
+    footR.textContent = '不支持FLV/MSE';
+    msg.innerHTML = '<span class="icon">❌</span>浏览器不支持MSE';
+    return;
+  }
+
+  try {
+    var player = mpegts.createPlayer({
+      type: 'flv',
+      isLive: true,
+      url: c.flv,
+      hasAudio: false,
+      hasVideo: true,
+      enableStashBuffer: false,
+      stashInitialSize: 128,
+      lazyLoad: false
+    });
+    players[i] = { type: 'flv', instance: player };
+
+    var t0 = Date.now();
+    player.on(mpegts.Events.STATISTICS_INFO, function(s) {
+      var el = (Date.now() - t0) / 1000;
+      footR.textContent = '📥' + (s.speed||0).toFixed(0) + 'KB/s | ⏱' + el.toFixed(0) + 's';
+    });
+
+    var t0 = Date.now();
+    player.on(mpegts.Events.MEDIA_INFO, function(info) {
+      var el = ((Date.now()-t0)/1000).toFixed(1);
+      log('cam'+(i+1)+' ✅ FLV MEDIA_INFO ('+el+'s)', 'ok');
+      tag.textContent = '✅ FLV';
+      tag.style.color = '#67c23a';
+      panel.className = 'panel ok';
+      msg.style.display = 'none';
+      video.style.display = '';
+      footR.textContent = 'OK ('+el+'s)';
+    });
+
+    player.on(mpegts.Events.ERROR, function(type, info) {
+      log('cam'+(i+1)+' ❌ FLV '+type+': '+JSON.stringify(info), 'err');
+      tag.textContent = '❌';
+      tag.style.color = '#f56c6c';
+      panel.className = 'panel err';
+      footR.textContent = 'ERR: ' + type;
+      msg.innerHTML = '<span class="icon">❌</span>' + type;
+      msg.style.display = '';
+    });
+
+    player.attachMediaElement(video);
+    player.load();
+
+  } catch(e) {
+    tag.textContent = '❌';
+    tag.style.color = '#f56c6c';
+    footR.textContent = 'ERR: ' + e.message;
+  }
+}
+
+// Cleanup
+function stopCamera(i) {
+  var p = players[i];
+  if (p) {
+    if (p.type === 'hls' && p.instance) { p.instance.destroy(); }
+    if (p.type === 'flv' && p.instance) { p.instance.destroy(); }
+    if (p.type === 'hls_native') { /* nothing */ }
+    players[i] = null;
+  }
+  var video = document.getElementById('v'+i);
+  if (video) { video.pause(); video.src = ''; video.srcObject = null; }
+}
+
+// Start all on load
+window.addEventListener('DOMContentLoaded', function() {
+  cameras.forEach(function(c, i) { startCamera(i); });
 });
 </script>
 </body>
