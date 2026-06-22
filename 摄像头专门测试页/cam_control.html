@@ -80,6 +80,7 @@ h1{text-align:center;font-size:16px;padding:6px 0;color:#fff;flex-shrink:0;line-
       </div>
       <div class="key-hint">
         <b>↑</b> 前进 &nbsp; <b>↓</b> 后退 &nbsp; <b>空格</b> 停止 &nbsp; 松开自动停止
+        <br><span style="color:#d2991d">⚠ AGV 马达有方向反转保护，换向前需先停稳 ~0.5s</span>
       </div>
     </div>
 
@@ -94,6 +95,9 @@ h1{text-align:center;font-size:16px;padding:6px 0;color:#fff;flex-shrink:0;line-
       </div>
     </div>
 
+    <div class="card" style="flex-shrink:0;padding:4px 12px;text-align:right">
+      <button onclick="document.getElementById('log').innerHTML='';log('日志已清空','info')" style="padding:3px 10px;border:1px solid #30363d;border-radius:4px;background:transparent;color:#8b949e;cursor:pointer;font-size:10px">🗑 清空日志</button>
+    </div>
     <div id="log"><span class="ts">--:--:--</span> 就绪...</div>
   </div>
 </div>
@@ -113,6 +117,7 @@ var currentDir = 'stop'; // 'forward' | 'backward' | 'stop'
 var keysDown = {}; // track pressed keys
 var heartbeatTimer = null;
 var lastCmdTime = 0;
+var stopDebounce = 0; // timestamp when stop was sent, debounce reverse commands
 
 // ===== Log =====
 function log(msg, cls) {
@@ -136,6 +141,23 @@ function showToast(msg, cls) {
 async function sendCmd(action) {
   log('sendCmd: '+action+' (current='+currentDir+')', 'info');
   if (action === currentDir) { log('  → blocked (same as current)', 'info'); return; }
+
+  // Debounce: after stop, wait 300ms before allowing a direction change
+  if (action !== 'stop' && stopDebounce > 0) {
+    var elapsed = Date.now() - stopDebounce;
+    if (elapsed < 300) {
+      log('  → debounce ' + elapsed + 'ms since stop, delaying...', 'info');
+      setTimeout(function() { sendCmd(action); }, 300 - elapsed);
+      return;
+    }
+  }
+
+  if (action === 'stop') {
+    stopDebounce = Date.now();
+  } else {
+    stopDebounce = 0;
+  }
+
   currentDir = action;
   lastCmdTime = Date.now();
 
@@ -309,6 +331,7 @@ function switchCam(i) {
 (async function() {
   log('=== 实时操控测试页 ===', 'info');
   log('键盘: ↑/W=前进 ↓/S=后退 松开=停止', 'info');
+  log('⚠ AGV 马达方向反转保护: 换向前需停稳 ~0.5s，否则反向指令可能被硬件忽略', 'err');
 
   // Load cameras from easy-api
   try {
