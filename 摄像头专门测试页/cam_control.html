@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>实时操控测试</title>
+<script src="mpegts.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0d1117;color:#e0e0e0;font-family:'Microsoft YaHei',Arial,sans-serif;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+h1{text-align:center;font-size:16px;padding:6px 0;color:#fff;flex-shrink:0;line-height:1}
+.main{flex:1;display:flex;gap:8px;padding:0 8px 8px;overflow:hidden;min-height:0;height:0}
+/* Video area */
+.video-side{flex:1;display:flex;flex-direction:column;gap:4px;min-width:0;min-height:0;height:100%}
+.video-panel{flex:1;background:#000;border:2px solid #21262d;border-radius:8px;position:relative;overflow:hidden;min-height:0;max-height:100%}
+.video-panel video{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;max-width:100%;max-height:100%}
+.video-panel .ph{text-align:center;color:#555;font-size:14px;position:absolute}
+.video-panel .ph .icon{font-size:48px;display:block;margin-bottom:8px}
+.video-overlay{position:absolute;top:8px;left:8px;background:rgba(0,0,0,.7);color:#58a6ff;padding:3px 8px;border-radius:4px;font-size:10px;font-family:Consolas,monospace;pointer-events:none}
+/* Control panel */
+.ctrl-side{width:300px;display:flex;flex-direction:column;gap:6px;flex-shrink:0;min-height:0;overflow:hidden}
+.card{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:8px 12px;flex-shrink:0}
+.card h3{font-size:12px;color:#58a6ff;margin-bottom:6px}
+/* Direction display */
+.dir-display{display:flex;flex-direction:column;align-items:center;gap:2px;padding:4px 0}
+.dir-row{display:flex;gap:4px}
+.dir-key{width:48px;height:48px;border:2px solid #30363d;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:20px;transition:all .15s;background:#0d1117;color:#484f58}
+.dir-key.active{background:#238636;border-color:#2ea043;color:#fff;box-shadow:0 0 16px rgba(35,134,54,.4)}
+.dir-key.stop-key{width:80px;color:#f85149;border-color:#30363d}
+.dir-key.stop-key.active{background:#da3633;border-color:#f85149;color:#fff;box-shadow:0 0 16px rgba(248,81,73,.4)}
+.dir-label{font-size:10px;color:#484f58;text-align:center;margin-top:2px}
+.key-hint{font-size:9px;color:#484f58;text-align:center;margin-top:4px}
+/* Status */
+.status-row{display:flex;justify-content:space-between;font-size:11px;padding:2px 0;border-bottom:1px solid rgba(255,255,255,.03)}
+.status-row .lbl{color:#8b949e}.status-row .val{color:#c9d1d9}
+.status-row .val.green{color:#3fb950}.status-row .val.red{color:#f85149}.status-row .val.yellow{color:#d2991d}
+/* Camera switcher */
+.cam-btns{display:flex;gap:4px}
+.cam-btn{padding:4px 10px;border:1px solid #30363d;border-radius:4px;background:transparent;color:#8b949e;cursor:pointer;font-size:11px;transition:all .2s}
+.cam-btn.active{background:#1f6feb;border-color:#1f6feb;color:#fff}
+/* Log */
+#log{flex:1;background:#161b22;border:1px solid #21262d;border-radius:8px;padding:10px 12px;font-size:10px;line-height:1.6;font-family:Consolas,monospace;overflow-y:auto;color:#8b949e;min-height:0}
+#log .ts{color:#484f58}#log .ok{color:#3fb950}#log .err{color:#f85149}#log .info{color:#58a6ff}
+/* Toast */
+.toast{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,.9);color:#fff;padding:16px 32px;border-radius:8px;font-size:24px;pointer-events:none;z-index:100;opacity:0;transition:opacity .15s}
+.toast.show{opacity:1}
+.toast.fwd{color:#3fb950}.toast.stop{color:#f85149}.toast.back{color:#d2991d}
+</style>
+</head>
+<body>
+<h1>🎮 实时操控 — 键盘方向键控制 AGV</h1>
+
+<div class="toast" id="toast"></div>
+
+<div class="main">
+  <!-- Video -->
+  <div class="video-side">
+    <div class="cam-btns" id="camBtns"></div>
+    <div class="video-panel" id="videoPanel">
+      <video id="video" autoplay muted playsinline></video>
+      <div class="ph" id="ph"><span class="icon">🎥</span>连接中...</div>
+      <div class="video-overlay" id="vidOverlay">--</div>
+    </div>
+  </div>
+
+  <!-- Control -->
+  <div class="ctrl-side">
+    <div class="card">
+      <h3>⌨ 键盘操控</h3>
+      <div class="dir-display">
+        <div class="dir-row">
+          <div class="dir-key" id="keyUp" style="font-size:28px;cursor:pointer" onmousedown="sendCmd('forward')" onmouseup="sendCmd('stop')" onmouseleave="sendCmd('stop')">&#9650;</div>
+        </div>
+        <div class="dir-row">
+          <div class="dir-key stop-key" id="keyStop" style="cursor:pointer" onclick="sendCmd('stop')">■</div>
+        </div>
+        <div class="dir-row">
+          <div class="dir-key" id="keyDown" style="font-size:28px;cursor:pointer" onmousedown="sendCmd('backward')" onmouseup="sendCmd('stop')" onmouseleave="sendCmd('stop')">&#9660;</div>
+        </div>
+      </div>
+      <div class="key-hint">
+        <b>↑</b> 前进 &nbsp; <b>↓</b> 后退 &nbsp; <b>空格</b> 停止 &nbsp; 松开自动停止
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>🚛 AGV 状态</h3>
+      <div id="agvStatus">
+        <div class="status-row"><span class="lbl">运行状态</span><span class="val" id="stRunning">--</span></div>
+        <div class="status-row"><span class="lbl">行驶距离</span><span class="val" id="stDist">--</span></div>
+        <div class="status-row"><span class="lbl">系统时间</span><span class="val" id="stTime">--</span></div>
+        <div class="status-row"><span class="lbl">网络延迟</span><span class="val" id="stLatency">--</span></div>
+        <div class="status-row"><span class="lbl">最后指令</span><span class="val" id="stCmd">--</span></div>
+      </div>
+    </div>
+
+    <div id="log"><span class="ts">--:--:--</span> 就绪...</div>
+  </div>
+</div>
+
+<script>
+// ===== CONFIG =====
+var API = 'http://192.168.2.57/prod-api';
+var RTC = 'http://192.168.2.57/webrtc-api';
+var EASY = 'http://192.168.2.57/easy-api';
+var AUTH = 'Basic YWRtaW4xMjM6QWRtaW5AMTIz';
+
+var cameras = [];
+var activeCam = 0;
+var player = null;
+var agvState = { isRunning: false, currentPosition: 0, sysTime: '' };
+var currentDir = 'stop'; // 'forward' | 'backward' | 'stop'
+var keysDown = {}; // track pressed keys
+var heartbeatTimer = null;
+var lastCmdTime = 0;
+
+// ===== Log =====
+function log(msg, cls) {
+  var el = document.getElementById('log');
+  var now = new Date();
+  var ts = ('0'+now.getHours()).slice(-2)+':'+('0'+now.getMinutes()).slice(-2)+':'+('0'+now.getSeconds()).slice(-2);
+  el.innerHTML += '<div class="'+ (cls||'') +'"><span class="ts">'+ts+'</span> '+msg+'</div>';
+  el.scrollTop = el.scrollHeight;
+}
+
+// ===== Toast =====
+var toastTimer;
+function showToast(msg, cls) {
+  var t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'toast '+(cls||'')+' show';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function(){ t.className = 'toast'; }, 600);
+}
+
+// ===== AGV Control =====
+async function sendCmd(action) {
+  log('sendCmd: '+action+' (current='+currentDir+')', 'info');
+  if (action === currentDir) { log('  → blocked (same as current)', 'info'); return; }
+  currentDir = action;
+  lastCmdTime = Date.now();
+
+  var endpoint = action === 'forward' ? '/agv/movement/forward'
+               : action === 'backward' ? '/agv/movement/backward'
+               : '/agv/movement/stop';
+
+  var labels = { forward: '前进 ▶', backward: '后退 ◀', stop: '停止 ■' };
+  document.getElementById('stCmd').textContent = labels[action] || action;
+  document.getElementById('stCmd').className = 'val ' + (action === 'stop' ? 'red' : 'green');
+
+  // Visual feedback
+  document.getElementById('keyUp').className = 'dir-key' + (action === 'forward' ? ' active' : '');
+  document.getElementById('keyDown').className = 'dir-key' + (action === 'backward' ? ' active' : '');
+  document.getElementById('keyStop').className = 'dir-key stop-key' + (action === 'stop' ? ' active' : '');
+
+  if (action !== 'stop') showToast(action === 'forward' ? '▲ 前进' : '▼ 后退', action === 'backward' ? 'back' : 'fwd');
+
+  try {
+    var t0 = Date.now();
+    var res = await fetch(API + endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+    var data = await res.json();
+    var latency = Date.now() - t0;
+    document.getElementById('stLatency').textContent = latency + 'ms';
+    document.getElementById('stLatency').className = 'val ' + (latency < 200 ? 'green' : 'yellow');
+
+    if (data.code === 200 || data.code === 0) {
+      log(labels[action] + ' ('+latency+'ms)', 'ok');
+    } else {
+      log(labels[action] + ' 失败: '+(data.msg||'HTTP '+res.status), 'err');
+      document.getElementById('stCmd').className = 'val red';
+    }
+  } catch(e) {
+    log('指令失败: '+e.message, 'err');
+    document.getElementById('stCmd').className = 'val red';
+  }
+}
+
+// ===== Keyboard handler =====
+document.addEventListener('keydown', function(e) {
+  log('keydown: key="'+e.key+'" code="'+e.code+'" repeat='+e.repeat+' keysDown={'+Object.keys(keysDown).filter(function(k){return keysDown[k];}).join(',')+'}', 'info');
+  if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') {
+    e.preventDefault();
+    if (e.repeat) { log('  → ignored (repeat)', 'info'); return; }
+    log('  → SEND forward', 'ok');
+    sendCmd('forward');
+  } else if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') {
+    e.preventDefault();
+    if (e.repeat) { log('  → ignored (repeat)', 'info'); return; }
+    log('  → SEND backward', 'ok');
+    sendCmd('backward');
+  } else if (e.key === ' ') {
+    e.preventDefault();
+    log('  → SEND stop (space)', 'ok');
+    showToast('■ 停止', 'stop');
+    document.getElementById('keyStop').className = 'dir-key stop-key active';
+    setTimeout(function() { document.getElementById('keyStop').className = 'dir-key stop-key'; }, 200);
+    sendCmd('stop');
+  }
+});
+
+document.addEventListener('keyup', function(e) {
+  log('keyup:   key="'+e.key+'" code="'+e.code+'" keysDown={'+Object.keys(keysDown).filter(function(k){return keysDown[k];}).join(',')+'}', 'info');
+  if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') {
+    if (!keysDown['ArrowDown'] && !keysDown['s'] && !keysDown['S']) {
+      log('  → SEND stop (↑ released, no ↓ pressed)', 'ok');
+      sendCmd('stop');
+    } else {
+      log('  → skip stop (↓ still pressed)', 'info');
+    }
+  } else if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') {
+    if (!keysDown['ArrowUp'] && !keysDown['w'] && !keysDown['W']) {
+      log('  → SEND stop (↓ released, no ↑ pressed)', 'ok');
+      sendCmd('stop');
+    } else {
+      log('  → skip stop (↑ still pressed)', 'info');
+    }
+  }
+});
+
+// Track all keys
+window.addEventListener('keydown', function(e) { keysDown[e.key] = true; });
+window.addEventListener('keyup', function(e) { keysDown[e.key] = false; });
+
+// ===== Heartbeat poll =====
+async function pollHeartbeat() {
+  try {
+    var res = await fetch(API + '/agv/movement/heartbeat');
+    var data = await res.json();
+    if (data.code === 200 || data.code === 0) {
+      var s = data.data || {};
+      agvState = s;
+      document.getElementById('stRunning').innerHTML = s.isRunning
+        ? '<span class="val green">● 行驶中</span>'
+        : '<span class="val red">● 停止</span>';
+      document.getElementById('stDist').textContent = (s.currentPosition||0).toFixed(2) + ' m';
+      document.getElementById('stDist').className = 'val';
+      document.getElementById('stTime').textContent = s.sysTime || '--';
+      document.getElementById('stTime').className = 'val';
+    }
+  } catch(e) { /* silent */ }
+}
+
+// ===== Camera playback =====
+function connectVideo() {
+  // Destroy previous
+  if (player) { try { player.destroy(); } catch(e) {} player = null; }
+
+  var video = document.getElementById('video');
+  video.style.display = 'none';
+  document.getElementById('ph').style.display = '';
+  document.getElementById('ph').innerHTML = '<span class="icon">🎥</span>连接中...';
+  document.getElementById('vidOverlay').textContent = '--';
+
+  if (!cameras.length) {
+    document.getElementById('ph').innerHTML = '<span class="icon">⚠️</span>无摄像头数据';
+    return;
+  }
+
+  var cam = cameras[activeCam];
+  var url = '/flv/cam' + (activeCam + 1);
+  var t0 = Date.now();
+
+  if (typeof mpegts === 'undefined' || !mpegts.isSupported()) {
+    document.getElementById('ph').innerHTML = '<span class="icon">❌</span>MSE不支持';
+    return;
+  }
+
+  try {
+    player = mpegts.createPlayer({
+      type: 'flv', isLive: true, url: url,
+      hasAudio: false, hasVideo: true,
+      enableStashBuffer: false
+    });
+
+    player.on(mpegts.Events.MEDIA_INFO, function() {
+      var el = ((Date.now()-t0)/1000).toFixed(1);
+      log('✅ 画面已连接 ('+el+'s) '+cam.name, 'ok');
+      video.style.display = '';
+      document.getElementById('ph').style.display = 'none';
+    });
+
+    player.on(mpegts.Events.STATISTICS_INFO, function(s) {
+      var el = ((Date.now()-t0)/1000).toFixed(0);
+      var spd = (s.speed||0) >= 1000 ? ((s.speed||0)/1000).toFixed(1)+'MB/s' : (s.speed||0).toFixed(0)+'KB/s';
+      document.getElementById('vidOverlay').textContent =
+        spd + ' | ' + (video.videoWidth||0)+'x'+(video.videoHeight||0) + ' | '+el+'s';
+    });
+
+    player.on(mpegts.Events.ERROR, function(type, info) {
+      log('❌ 视频错误: '+type, 'err');
+    });
+
+    player.attachMediaElement(video);
+    player.load();
+
+  } catch(e) {
+    log('❌ 视频异常: '+e.message, 'err');
+    document.getElementById('ph').innerHTML = '<span class="icon">❌</span>'+e.message;
+  }
+}
+
+function switchCam(i) {
+  activeCam = i;
+  var btns = document.getElementById('camBtns').querySelectorAll('button');
+  btns.forEach(function(b, j) { b.className = 'cam-btn' + (j === i ? ' active' : ''); });
+  connectVideo();
+}
+
+// ===== Init =====
+(async function() {
+  log('=== 实时操控测试页 ===', 'info');
+  log('键盘: ↑/W=前进 ↓/S=后退 松开=停止', 'info');
+
+  // Load cameras from easy-api
+  try {
+    var r = await fetch(EASY + '/devices?page=1&size=999', { headers: { 'Authorization': AUTH } });
+    var d = await r.json();
+    cameras = d.items || [];
+  } catch(e) { log('easy-api 失败: '+e.message, 'err'); }
+
+  if (!cameras.length) {
+    cameras = [
+      { id: 'PbemokuspQHD5', name: '摄像头1' },
+      { id: 'Psh0GyTpkiSdC', name: '摄像头2' },
+      { id: 'Pk8FmQHNeOqSx', name: '摄像头3' },
+      { id: 'PaKHUtvPpcrZq', name: '摄像头4' }
+    ];
+  }
+  log('摄像头: '+cameras.length+' 个', 'info');
+
+  // Build camera switcher buttons
+  var btnsDiv = document.getElementById('camBtns');
+  cameras.forEach(function(c, i) {
+    var btn = document.createElement('button');
+    btn.textContent = c.name;
+    btn.className = 'cam-btn' + (i === 0 ? ' active' : '');
+    btn.onclick = (function(idx) { return function() { switchCam(idx); }; })(i);
+    btnsDiv.appendChild(btn);
+  });
+
+  // Start video
+  connectVideo();
+
+  // Start heartbeat
+  pollHeartbeat();
+  heartbeatTimer = setInterval(pollHeartbeat, 2000);
+
+  log('就绪，按 ↑ 前进', 'ok');
+})();
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', function() {
+  if (currentDir !== 'stop') sendCmd('stop');
+  if (player) { try { player.destroy(); } catch(e) {} }
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
+});
+</script>
+</body>
+</html>
