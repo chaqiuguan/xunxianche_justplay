@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WebRTC 摄像头测试</title>
+<script src="http://192.168.2.57/ZLMRTCClient.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#1a1a2e;color:#e0e0e0;font-family:'Microsoft YaHei',Arial,sans-serif;min-height:100vh;padding:12px}
+h1{text-align:center;font-size:18px;padding:8px 0;color:#fff}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(460px,1fr));gap:10px}
+.panel{background:#16213e;border:2px solid #0f3460;border-radius:8px;overflow:hidden}
+.panel.ok{border-color:#67c23a}.panel.err{border-color:#f56c6c}
+.ph{padding:8px 12px;font-size:13px;background:rgba(255,255,255,.03);display:flex;justify-content:space-between}
+.vbox{background:#000;min-height:260px;position:relative;display:flex;align-items:center;justify-content:center}
+.vbox video{width:100%;height:100%;object-fit:contain}
+.vbox .msg{text-align:center;color:#666;font-size:13px;position:absolute}
+.vbox .msg .icon{font-size:40px;display:block;margin-bottom:6px}
+.foot{padding:6px 12px;font-size:11px;color:#888;background:rgba(0,0,0,.2)}
+.btn-row{display:flex;gap:8px;justify-content:center;margin:10px 0}
+.btn{padding:7px 16px;border:1px solid #409eff;border-radius:5px;background:rgba(64,158,255,.1);color:#409eff;cursor:pointer;font-size:12px}
+.btn:hover{background:rgba(64,158,255,.2)}.btn.go{background:#409eff;color:#fff}
+#log{background:#0f3460;border-radius:6px;padding:10px 14px;font-size:11px;line-height:1.6;font-family:Consolas,monospace;max-height:250px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;margin-top:10px;color:#ccc}
+.g{color:#67c23a}.r{color:#f56c6c}.y{color:#e6a23c}
+</style>
+</head>
+<body>
+<h1>📹 WebRTC 摄像头测试 (ZLMRTCClient)</h1>
+<div class="btn-row">
+  <button class="btn go" onclick="playAll()">▶ 播放全部</button>
+  <button class="btn" onclick="stopAll()">⏹ 停止</button>
+</div>
+<div class="grid" id="grid"></div>
+<div id="log"></div>
+<script>
+var RTC='http://192.168.2.57';
+var EASY='http://192.168.2.57/easy-api';
+var AUTH='Basic YWRtaW4xMjM6QWRtaW5AMTIz';
+var cams=[];
+var players=[];
+
+function L(m){var b=document.getElementById('log');b.textContent+='\n'+new Date().toLocaleTimeString()+' '+m;b.scrollTop=b.scrollHeight;console.log(m);}
+function $(id){return document.getElementById(id);}
+
+(async function(){
+  L('=== WebRTC ZLMRTCClient 测试 ===');
+  L('ZLMRTCClient: '+(typeof ZLMRTCClient!=='undefined'?'✅':'❌'));
+
+  // Load cameras
+  try{
+    var r=await fetch(EASY+'/devices?page=1&size=999',{headers:{'Authorization':AUTH}});
+    var d=await r.json(); cams=d.items||[];
+  }catch(e){L('easy-api失败: '+e.message);}
+  if(!cams.length) cams=[
+    {id:'PbemokuspQHD5',name:'摄像头1'},
+    {id:'Psh0GyTpkiSdC',name:'摄像头2'},
+    {id:'Pk8FmQHNeOqSx',name:'摄像头3'},
+    {id:'PaKHUtvPpcrZq',name:'摄像头4'}
+  ];
+  L('摄像头: '+cams.length);
+
+  var g=$('grid');
+  cams.forEach(function(c,i){
+    g.innerHTML+=
+      '<div class="panel" id="p'+i+'">'+
+      '<div class="ph"><b>📷 '+c.name+'</b><span id="tag'+i+'" style="font-size:11px;color:#909399">等待</span></div>'+
+      '<div class="vbox">'+
+      '<video id="v'+i+'" style="display:none" autoplay muted playsinline></video>'+
+      '<div class="msg" id="msg'+i+'"><span class="icon">🎥</span>待播放</div>'+
+      '</div>'+
+      '<div class="foot" id="foot'+i+'">--</div>'+
+      '</div>';
+  });
+  L('就绪，点 ▶ 播放全部');
+})();
+
+function playAll(){
+  cams.forEach(function(c,i){ playOne(i); });
+}
+
+function playOne(i){
+  stopOne(i);
+  $('tag'+i).textContent='连接...'; $('tag'+i).style.color='#e6a23c';
+  $('msg'+i).innerHTML='<span class="icon">🎥</span>WebRTC...';
+  $('msg'+i).style.display='';
+  $('v'+i).style.display='none';
+  $('foot'+i).textContent='SDP协商中...';
+
+  if(typeof ZLMRTCClient==='undefined'){L('ZLMRTCClient未加载');return;}
+
+  var streamId=cams[i].id+'_01';
+  var sdpUrl=RTC+'/index/api/webrtc?app=live&stream='+streamId+'&type=play';
+  L('cam'+(i+1)+': '+streamId);
+
+  try{
+    var endpoint=new ZLMRTCClient.Endpoint({
+      element:$('v'+i),
+      debug:true,
+      zlmsdpUrl:sdpUrl,
+      simulcast:false,
+      useCamera:false,
+      audioEnable:true,
+      videoEnable:true,
+      recvOnly:true,
+      resolution:{w:1920,h:1080}
+    });
+    players[i]=endpoint;
+
+    endpoint.on(ZLMRTCClient.Events.WEBRTC_ON_REMOTE_STREAMS,function(e){
+      L('cam'+(i+1)+' ✅ 收到流! streams='+e.streams.length);
+      $('v'+i).style.display='';
+      $('msg'+i).style.display='none';
+      $('tag'+i).textContent='✅'; $('tag'+i).style.color='#67c23a';
+      $('p'+i).className='panel ok';
+      $('foot'+i).textContent='WebRTC OK';
+    });
+
+    endpoint.on(ZLMRTCClient.Events.WEBRTC_ON_CONNECTION_STATE_CHANGE,function(state){
+      L('cam'+(i+1)+' ICE: '+state);
+      $('foot'+i).textContent='ICE: '+state;
+      if(state==='failed'||state==='disconnected'){
+        $('tag'+i).textContent='❌'; $('tag'+i).style.color='#f56c6c';
+        $('p'+i).className='panel err';
+      }
+    });
+
+    endpoint.on(ZLMRTCClient.Events.WEBRTC_OFFER_ANWSER_EXCHANGE_FAILED,function(e){
+      L('cam'+(i+1)+' ❌ SDP交换失败: '+JSON.stringify(e));
+      $('tag'+i).textContent='❌'; $('tag'+i).style.color='#f56c6c';
+      $('p'+i).className='panel err';
+    });
+
+  }catch(e){
+    L('cam'+(i+1)+' 异常: '+e.message);
+    $('tag'+i).textContent='❌';
+  }
+}
+
+function stopOne(i){
+  if(players[i]){try{players[i].close();}catch(e){}players[i]=null;}
+  var v=$('v'+i); if(v){v.pause();v.srcObject=null;v.style.display='none';}
+}
+function stopAll(){cams.forEach(function(c,i){stopOne(i);});L('全部停止');}
+</script>
+</body>
+</html>

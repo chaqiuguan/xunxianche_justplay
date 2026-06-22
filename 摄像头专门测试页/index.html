@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>摄像头实时测试</title>
+<script src="crypto-js.js"></script>
+<script src="mpegts.min.js"></script>
+<script src="../手持终端任务附件 1.2/依赖/easyplayer/easyplayer/EasyPlayer-pro.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#1a1a2e;color:#e0e0e0;font-family:'Microsoft YaHei',Arial,sans-serif;min-height:100vh;padding:12px}
+h1{text-align:center;font-size:18px;padding:8px 0;color:#fff}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(460px,1fr));gap:10px}
+.panel{background:#16213e;border:2px solid #0f3460;border-radius:8px;overflow:hidden}
+.panel.ok{border-color:#67c23a}.panel.err{border-color:#f56c6c}.panel.wait{border-color:#e6a23c}
+.ph{padding:8px 12px;display:flex;justify-content:space-between;align-items:center;font-size:13px;background:rgba(255,255,255,.03)}
+.video-box{background:#000;min-height:260px;position:relative;display:flex;align-items:center;justify-content:center}
+.video-box video{width:100%;height:100%;object-fit:contain}
+.video-box .msg{text-align:center;color:#666;font-size:13px;position:absolute}
+.video-box .msg .icon{font-size:40px;display:block;margin-bottom:6px}
+.info-bar{padding:6px 12px;font-size:11px;color:#888;display:flex;justify-content:space-between;background:rgba(0,0,0,.2)}
+.btn-row{display:flex;gap:8px;justify-content:center;margin:10px 0;flex-wrap:wrap}
+.btn{padding:7px 16px;border:1px solid #409eff;border-radius:5px;background:rgba(64,158,255,.1);color:#409eff;cursor:pointer;font-size:12px}
+.btn:hover{background:rgba(64,158,255,.2)}.btn.go{background:#409eff;color:#fff}
+#log{background:#0f3460;border-radius:6px;padding:10px 14px;font-size:11px;line-height:1.6;font-family:Consolas,monospace;max-height:250px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;margin-top:10px;color:#ccc}
+.ep-ct{background:#000!important}.ep-ct video{width:100%!important;height:100%!important;object-fit:contain!important;display:block!important}
+.g{color:#67c23a}.r{color:#f56c6c}.y{color:#e6a23c}
+</style>
+</head>
+<body>
+<h1>📹 摄像头实时流测试</h1>
+<div class="btn-row">
+  <button class="btn go" onclick="detectCodecs()">🔬 检测编码</button>
+  <button class="btn go" onclick="playAll()">▶ mpegts.js</button>
+  <button class="btn go" onclick="playEasyPlayerAll()">▶ EasyPlayer (H.265)</button>
+  <button class="btn" onclick="stopAll()">⏹ 停止</button>
+</div>
+<div class="grid" id="grid"></div>
+<div id="log">🔬 先点「检测编码」看视频编码格式...</div>
+
+<script>
+var RTC = 'http://192.168.2.57/webrtc-api';
+var EASY = 'http://192.168.2.57/easy-api';
+var AUTH = 'Basic YWRtaW4xMjM6QWRtaW5AMTIz';
+var cams = [];
+var players = [];
+
+function L(m){ var b=document.getElementById('log'); b.textContent+='\n'+new Date().toLocaleTimeString()+' '+m; b.scrollTop=b.scrollHeight; console.log(m); }
+function $(id){ return document.getElementById(id); }
+
+// ====== INIT ======
+(async function(){
+  L('=== 启动 ===');
+  L('CryptoJS: '+(typeof CryptoJS!=='undefined'?'✅':'❌'));
+  L('EasyPlayer-pro: '+(typeof window['EasyPlayer-pro']!=='undefined'?'✅':'❌'));
+  L('mpegts.js: '+(typeof mpegts!=='undefined'?'✅':'❌'));
+  // Load cameras
+  try{
+    var r=await fetch(EASY+'/devices?page=1&size=999',{headers:{'Authorization':AUTH}});
+    var d=await r.json();
+    cams = d.items || [];
+  }catch(e){ L('easy-api 失败, 用预设列表'); }
+
+  if(!cams.length){
+    cams=[
+      {id:'PbemokuspQHD5',name:'摄像头1',ip:'192.168.2.14'},
+      {id:'Psh0GyTpkiSdC',name:'摄像头2',ip:'192.168.2.13'},
+      {id:'Pk8FmQHNeOqSx',name:'摄像头3',ip:'192.168.2.12'},
+      {id:'PaKHUtvPpcrZq',name:'摄像头4',ip:'192.168.2.11'}
+    ];
+  }
+  L('摄像头: '+cams.length+' 个');
+
+  // Build grid
+  var g=$('grid');
+  cams.forEach(function(c,i){
+    g.innerHTML+=
+      '<div class="panel wait" id="p'+i+'">'+
+      '<div class="ph"><b>📷 '+c.name+'</b><span id="tag'+i+'" style="font-size:11px;color:#909399">等待</span></div>'+
+      '<div class="video-box">'+
+      '<video id="v'+i+'" style="display:none" autoplay muted playsinline></video>'+
+      '<div class="msg" id="msg'+i+'"><span class="icon">🎥</span>待检测</div>'+
+      '</div>'+
+      '<div class="info-bar"><span id="info'+i+'">--</span><span id="size'+i+'"></span></div>'+
+      '</div>';
+  });
+  L('页面就绪');
+})();
+
+// ====== CODEC DETECTION ======
+async function detectCodecs(){
+  L('\n=== 编码检测 ===');
+  for(var i=0;i<cams.length;i++){
+    var url=RTC+'/live/'+cams[i].id+'_01.flv';
+    $('tag'+i).textContent='检测中...'; $('tag'+i).style.color='#e6a23c';
+    $('p'+i).className='panel wait';
+    $('msg'+i).innerHTML='<span class="icon">🔬</span>抓取FLV头...';
+
+    try{
+      // Fetch stream with abort after 3s
+      var ctrl=new AbortController();
+      setTimeout(function(){ctrl.abort();},3000);
+      var res=await fetch(url,{signal:ctrl.signal});
+      $('info'+i).textContent='HTTP '+res.status+' | 读取中...';
+
+      // Read ~32KB
+      var reader=res.body.getReader();
+      var chunks=[], total=0;
+      while(total<32768){
+        var r2=await reader.read();
+        if(r2.done) break;
+        chunks.push(r2.value); total+=r2.value.length;
+      }
+      reader.cancel();
+
+      // Combine
+      var buf=new Uint8Array(total), off=0;
+      for(var c=0;c<chunks.length;c++){buf.set(chunks[c],off);off+=chunks[c].length;}
+      L('cam'+(i+1)+' 读取 '+buf.length+' 字节');
+
+      // Show first 160 bytes as hex
+      var hex='';
+      for(var h=0;h<Math.min(buf.length,160);h++){hex+=('0'+buf[h].toString(16)).slice(-2)+' ';}
+      L('  前160字节: '+hex);
+
+      // Parse FLV
+      if(buf[0]!==0x46||buf[1]!==0x4C||buf[2]!==0x56){ $('info'+i).textContent='不是FLV! 首字节:'+buf[0]+','+buf[1]+','+buf[2]; continue; }
+
+      var hasAudio=!!(buf[4]&0x04), hasVideo=!!(buf[4]&0x01);
+      L('  FLV头: audio='+hasAudio+' video='+hasVideo);
+
+      // Scan for first video tag
+      var pos=13, found=false;
+      while(pos<buf.length-11&&!found){
+        var tagType=buf[pos]&0x1F;
+        var dataSize=(buf[pos+1]<<16)|(buf[pos+2]<<8)|buf[pos+3];
+        var dpos=pos+11;
+        if(tagType===9&&dataSize>0&&dpos+1<buf.length){
+          var frameType=(buf[dpos]>>4)&0x0F;
+          var codecId=buf[dpos]&0x0F;
+          var codecs={2:'H.263',4:'H.264/AVC',5:'H.265/HEVC',6:'AV1',7:'H.265/HEVC'};
+          var frames={1:'关键帧(IDR)',2:'P帧',3:'B帧'};
+          var cn=codecs[codecId]||('codec_'+codecId);
+          var fn=frames[frameType]||('type_'+frameType);
+          L('  视频tag @'+dpos+': '+cn+' '+fn+' dataSize='+dataSize);
+
+          var cls=(codecId===4)?'g':((codecId===5||codecId===7)?'y':'r');
+          $('info'+i).innerHTML='编码: <span class="'+cls+'">'+cn+'</span> | 首帧: '+fn+' | '+dataSize+'B';
+          $('tag'+i).textContent=cn; $('tag'+i).style.color=(codecId===4)?'#67c23a':'#e6a23c';
+          $('p'+i).className='panel ok';
+          found=true;
+        }
+        pos+=11+dataSize+4;
+      }
+      if(!found){ $('info'+i).textContent='16KB内无视频tag'; $('tag'+i).textContent='?'; }
+    }catch(e){
+      L('cam'+(i+1)+' 检测失败: '+e.message);
+      $('info'+i).textContent='失败: '+e.message;
+      $('tag'+i).textContent='❌'; $('tag'+i).style.color='#f56c6c';
+    }
+  }
+  L('=== 检测完成 ===');
+}
+
+// ====== PLAYBACK ======
+function playAll(){
+  L('\n=== mpegts.js 播放 ===');
+  if(typeof mpegts==='undefined'){L('mpegts.js 未加载!');return;}
+  cams.forEach(function(c,i){playOne(i);});
+}
+
+function playOne(i){
+  stopOne(i);
+  var url=RTC+'/live/'+cams[i].id+'_01.flv';
+  var v=$('v'+i);
+  $('p'+i).className='panel wait';
+  $('tag'+i).textContent='播放中...'; $('tag'+i).style.color='#e6a23c';
+  $('msg'+i).innerHTML='<span class="icon">🎥</span>连接...';
+  $('msg'+i).style.display=''; v.style.display='none';
+  $('info'+i).textContent='连接 mpegts...';
+
+  if(!mpegts.isSupported()){ $('info'+i).textContent='MSE不支持'; return; }
+
+  try{
+    var p=mpegts.createPlayer({type:'flv',isLive:true,url:url,hasAudio:true,hasVideo:true});
+    players[i]=p;
+    var t0=Date.now();
+    p.attachMediaElement(v);
+    p.load();
+
+    p.on(mpegts.Events.STATISTICS_INFO,function(s){
+      var el=(Date.now()-t0)/1000;
+      $('info'+i).textContent='📥 '+(s.speed||0).toFixed(0)+'KB/s | ⏱'+el.toFixed(0)+'s';
+      if(v.videoWidth>0){
+        $('size'+i).textContent=v.videoWidth+'x'+v.videoHeight;
+        v.style.display=''; $('msg'+i).style.display='none';
+        $('tag'+i).textContent='✅'; $('tag'+i).style.color='#67c23a';
+        $('p'+i).className='panel ok';
+      }
+    });
+    p.on(mpegts.Events.MEDIA_INFO,function(m){
+      L('cam'+(i+1)+' MEDIA_INFO: '+JSON.stringify(m));
+    });
+    p.on(mpegts.Events.ERROR,function(t,info){
+      L('cam'+(i+1)+' ERR: '+t+' '+JSON.stringify(info));
+    });
+  }catch(e){
+    L('cam'+(i+1)+' 异常: '+e.message);
+    $('info'+i).textContent='异常: '+e.message;
+  }
+}
+
+function stopOne(i){
+  if(players[i]){try{players[i].destroy();}catch(e){}players[i]=null;}
+  var v=$('v'+i); if(v){v.pause();v.src='';v.style.display='none';}
+}
+
+function stopAll(){
+  cams.forEach(function(c,i){stopOne(i);});
+  L('=== 停止 ===');
+}
+
+// ====== EasyPlayer PLAYBACK ======
+function playEasyPlayerAll(){
+  L('\n=== EasyPlayer 播放 (H.265 WASM) ===');
+  var EP = window['EasyPlayer-pro'];
+  L('CryptoJS='+(typeof CryptoJS!=='undefined')+' EasyPlayer-pro='+(typeof EP!=='undefined'));
+  if(!EP){ L('EasyPlayer-pro 未加载!'); return; }
+  cams.forEach(function(c,i){ playEpOne(i); });
+}
+
+function playEpOne(i){
+  stopOne(i);
+  // Use HTTP-FLV through ZLMediakit (EZPlayer-pro doesn't support RTSP natively)
+  var url = RTC+'/live/'+cams[i].id+'_01.flv';
+  L('cam'+(i+1)+' FLV: '+url);
+  $('p'+i).className='panel wait';
+  $('tag'+i).textContent='EasyPlayer...'; $('tag'+i).style.color='#e6a23c';
+  $('msg'+i).innerHTML='<span class="icon">🎥</span>EasyPlayer 连接...';
+  $('msg'+i).style.display='';
+  var v=$('v'+i); if(v)v.style.display='none';
+
+  // Create a fresh container div for EasyPlayer
+  var videoBox = $('msg'+i).parentNode;
+  // Remove old EP container if any
+  var oldEp = videoBox.querySelector('.ep-ct');
+  if(oldEp) oldEp.remove();
+
+  var epDiv = document.createElement('div');
+  epDiv.className = 'ep-ct';
+  epDiv.id = 'epct'+i;
+  epDiv.style.cssText = 'width:100%;height:100%;position:absolute;top:0;left:0;z-index:5';
+  videoBox.appendChild(epDiv);
+
+  var EP = window['EasyPlayer-pro'];
+  try{
+    // Minimal config - let EasyPlayer auto-detect everything
+    var player = new EP({
+      container: epDiv,
+      url: url,
+      isLive: true,
+      autoplay: true,
+      muted: true,
+      lang: 'zh'
+    });
+    players[i]=player;
+    L('cam'+(i+1)+' EasyPlayer 构造成功!');
+    $('info'+i).textContent='EasyPlayer H.265 WASM';
+
+    // WASM download + compile can take 10-20 seconds. Wait patiently.
+    var checkCount = 0;
+    setTimeout(function checkEp(){
+      checkCount++;
+      var kid = epDiv.querySelector('video') || epDiv.querySelector('canvas');
+      if(kid){
+        var vw = (kid.tagName==='VIDEO') ? kid.videoWidth : -1;
+        // Log every 5th check to reduce noise
+        if(checkCount % 5 === 1 || vw > 0){
+          L('cam'+(i+1)+' #'+checkCount+': '+kid.tagName+' CSS='+kid.offsetWidth+'x'+kid.offsetHeight+' vW='+vw+' paused='+kid.paused);
+        }
+        if(vw > 0){
+          L('cam'+(i+1)+' ✅ 画面! '+vw+'x'+kid.videoHeight);
+          $('msg'+i).style.display='none';
+          $('tag'+i).textContent='✅'; $('tag'+i).style.color='#67c23a';
+          $('p'+i).className='panel ok';
+        } else if(checkCount < 60) { // Wait up to 60 seconds
+          setTimeout(checkEp, 1000);
+        } else {
+          L('cam'+(i+1)+' 超时(60s)无画面');
+          $('tag'+i).textContent='⚠️'; $('tag'+i).style.color='#e6a23c';
+        }
+      } else if(checkCount < 60) {
+        setTimeout(checkEp, 1000);
+      } else {
+        L('cam'+(i+1)+' 超时无元素');
+        $('tag'+i).textContent='❌';
+      }
+    }, 4000); // Wait 4s before first check (WASM load time)
+
+  } catch(e){
+    L('cam'+(i+1)+' EasyPlayer 异常: '+e.message);
+    $('info'+i).textContent='异常: '+e.message;
+    $('tag'+i).textContent='❌'; $('tag'+i).style.color='#f56c6c';
+    $('p'+i).className='panel err';
+  }
+}
+
+// Override stopOne to also clean up EP divs
+var _origStopOne = stopOne;
+stopOne = function(i){
+  _origStopOne(i);
+  var oldEp = document.getElementById('epct'+i);
+  if(oldEp) oldEp.remove();
+};
+</script>
+</body>
+</html>

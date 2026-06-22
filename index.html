@@ -1,0 +1,1640 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AGV智能巡检系统 - 手持终端</title>
+<style>
+/* ===== Reset & Base ===== */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Microsoft YaHei','PingFang SC',Arial,sans-serif;background:#f0f2f5;color:#333;min-height:100vh;overflow-x:hidden;user-select:none}
+a{color:#409eff;text-decoration:none;cursor:pointer}a:hover{text-decoration:underline}
+
+/* ===== Toast ===== */
+.toast-container{position:fixed;top:24px;left:50%;transform:translateX(-50%);z-index:10000;display:flex;flex-direction:column;gap:8px}
+.toast{padding:12px 24px;border-radius:6px;color:#fff;font-size:14px;box-shadow:0 4px 12px rgba(0,0,0,.15);animation:toastIn .3s ease;max-width:480px;text-align:center}
+.toast.success{background:#67c23a}.toast.error{background:#f56c6c}.toast.warning{background:#e6a23c}.toast.info{background:#409eff}
+@keyframes toastIn{from{opacity:0;transform:translateY(-20px)}to{opacity:1;transform:translateY(0)}}
+
+/* ===== Confirm Dialog ===== */
+.confirm-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:9998;display:none;justify-content:center;align-items:center}
+.confirm-overlay.show{display:flex}
+.confirm-box{background:#fff;border-radius:8px;padding:24px;width:420px;box-shadow:0 8px 32px rgba(0,0,0,.2);text-align:center}
+.confirm-box .icon{font-size:48px;margin-bottom:16px}
+.confirm-box .msg{font-size:16px;color:#333;margin-bottom:24px;line-height:1.6}
+.confirm-box .btns{display:flex;gap:12px;justify-content:center}
+.confirm-box .btns button{padding:8px 32px;border-radius:4px;border:1px solid #ddd;background:#fff;cursor:pointer;font-size:14px}
+.confirm-box .btns button.primary{background:#409eff;border-color:#409eff;color:#fff}
+.confirm-box .btns button.danger{background:#f56c6c;border-color:#f56c6c;color:#fff}
+
+/* ===== Loading Overlay ===== */
+.loading-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(255,255,255,.85);z-index:9999;display:none;justify-content:center;align-items:center;flex-direction:column}
+.loading-overlay.show{display:flex}
+.spinner{width:48px;height:48px;border:4px solid #e4e7ed;border-top-color:#409eff;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-text{margin-top:16px;color:#666;font-size:14px}
+
+/* ===== App Shell ===== */
+.app-shell{width:100%;height:100vh;display:flex;flex-direction:column}
+.app-header{height:52px;background:#fff;border-bottom:1px solid #e4e7ed;display:flex;align-items:center;padding:0 20px;justify-content:space-between;flex-shrink:0}
+.app-header .logo{font-size:18px;font-weight:bold;color:#303133;display:flex;align-items:center;gap:8px}
+.app-header .logo .icon{font-size:24px}
+.breadcrumb{font-size:13px;color:#909399;display:flex;align-items:center;gap:4px}
+.breadcrumb .sep{margin:0 4px;color:#c0c4cc}
+.breadcrumb a{color:#409eff;cursor:pointer}
+.app-body{flex:1;overflow:auto;position:relative}
+
+/* ===== View Container ===== */
+.view{display:none;height:100%}
+.view.active{display:flex;flex-direction:column}
+
+/* ===== Buttons ===== */
+.btn{padding:8px 18px;border:1px solid #dcdfe6;border-radius:4px;background:#fff;cursor:pointer;font-size:13px;transition:all .2s;white-space:nowrap;display:inline-flex;align-items:center;gap:4px}
+.btn:hover{opacity:.85}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-primary{background:#409eff;border-color:#409eff;color:#fff}
+.btn-success{background:#67c23a;border-color:#67c23a;color:#fff}
+.btn-danger{background:#f56c6c;border-color:#f56c6c;color:#fff}
+.btn-warning{background:#e6a23c;border-color:#e6a23c;color:#fff}
+.btn-sm{padding:5px 12px;font-size:12px}
+.btn-circle{width:36px;height:36px;border-radius:50%;padding:0;display:inline-flex;align-items:center;justify-content:center;font-size:16px}
+.btn-text{background:none;border:none;color:#409eff;padding:4px 8px}.btn-text:hover{color:#66b1ff}
+.btn-text.danger{color:#f56c6c}.btn-text.danger:hover{color:#f89898}
+
+/* ===== Form ===== */
+.form-group{margin-bottom:16px}
+.form-label{display:block;margin-bottom:6px;font-size:13px;color:#606266;font-weight:500}
+.form-label.required::after{content:' *';color:#f56c6c}
+.form-input{width:100%;padding:8px 12px;border:1px solid #dcdfe6;border-radius:4px;font-size:13px;transition:border-color .2s;outline:none}
+.form-input:focus{border-color:#409eff;box-shadow:0 0 0 2px rgba(64,158,255,.15)}
+.form-input.error{border-color:#f56c6c}
+.form-error{color:#f56c6c;font-size:12px;margin-top:4px;display:none}
+.form-input.error+.form-error{display:block}
+.form-select{width:100%;padding:8px 12px;border:1px solid #dcdfe6;border-radius:4px;font-size:13px;outline:none;background:#fff}
+.form-textarea{width:100%;padding:8px 12px;border:1px solid #dcdfe6;border-radius:4px;font-size:13px;resize:vertical;outline:none;min-height:72px}
+.form-row{display:flex;gap:16px}.form-row>*{flex:1}
+.form-help{font-size:12px;color:#909399;margin-top:4px}
+
+/* ===== Card ===== */
+.card{background:#fff;border:1px solid #e4e7ed;border-radius:8px;overflow:hidden}
+.card-header{padding:12px 16px;background:#fafafa;border-bottom:1px solid #e4e7ed;font-weight:600;font-size:14px;display:flex;align-items:center;justify-content:space-between}
+.card-body{padding:16px}
+
+/* ===== Table ===== */
+.data-table{width:100%;border-collapse:collapse;font-size:13px}
+.data-table thead{background:#fafafa}
+.data-table th{padding:10px 12px;text-align:left;font-weight:600;color:#606266;border-bottom:1px solid #ebeef5;white-space:nowrap}
+.data-table td{padding:10px 12px;border-bottom:1px solid #ebeef5;color:#303133}
+.data-table tbody tr:hover{background:#f5f7fa}
+.data-table tbody tr:nth-child(even){background:#fafafa}
+.data-table tbody tr:nth-child(even):hover{background:#f0f2f5}
+
+/* Status Tags */
+.tag{display:inline-block;padding:2px 10px;border-radius:10px;font-size:12px;font-weight:500}
+.tag-pending{background:#fdf6ec;color:#e6a23c}
+.tag-running{background:#ecf5ff;color:#409eff}
+.tag-upload{background:#f4f4f5;color:#909399}
+.tag-done{background:#f0f9eb;color:#67c23a}
+
+/* ===== Pagination ===== */
+.pagination{display:flex;align-items:center;justify-content:center;gap:6px;padding:16px 0}
+.pagination .info{font-size:13px;color:#909399;margin-right:12px}
+.pagination .page-btn{padding:6px 12px;border:1px solid #dcdfe6;border-radius:4px;background:#fff;cursor:pointer;font-size:13px}
+.pagination .page-btn.active{background:#409eff;border-color:#409eff;color:#fff}
+.pagination .page-btn:disabled{cursor:not-allowed;opacity:.5}
+
+/* ===== Modal ===== */
+.modal-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:9997;display:none;justify-content:center;align-items:center}
+.modal-overlay.show{display:flex}
+.modal-panel{background:#fff;border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,.2);max-height:85vh;display:flex;flex-direction:column;overflow:hidden}
+.modal-header{padding:16px 20px;border-bottom:1px solid #e4e7ed;font-size:16px;font-weight:600;display:flex;align-items:center;justify-content:space-between}
+.modal-header .close{font-size:20px;cursor:pointer;color:#909399;line-height:1}.modal-header .close:hover{color:#333}
+.modal-body{padding:20px;overflow-y:auto;flex:1}
+.modal-footer{padding:12px 20px;border-top:1px solid #e4e7ed;text-align:right;display:flex;justify-content:flex-end;gap:10px}
+
+/* ===== View 1: Init ===== */
+.init-wrap{flex:1;display:flex;justify-content:center;align-items:center;padding:20px}
+.init-card{width:440px;background:#fff;padding:30px 32px;border-radius:12px;box-shadow:0 2px 16px rgba(0,0,0,.08)}
+.init-card h1{text-align:center;font-size:22px;margin-bottom:36px;color:#303133}
+.check-list{display:flex;flex-direction:column;gap:8px;margin-bottom:36px}
+.check-item{border:1px solid #e4e7ed;border-radius:6px;overflow:hidden;transition:all .3s}
+.check-item.expanded{border-color:#c0c4cc}
+.check-header{padding:10px 14px;background:#fafafa;display:flex;align-items:center;cursor:pointer;gap:10px;font-size:14px}
+.check-header:hover{background:#f0f2f5}
+.check-status{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0;border:2px solid #dcdfe6;color:#909399}
+.check-status.loading{border-color:#409eff;border-top-color:transparent;animation:spin .8s linear infinite}
+.check-status.success{background:#67c23a;border-color:#67c23a;color:#fff}
+.check-status.error{background:#f56c6c;border-color:#f56c6c;color:#fff}
+.check-content{display:none;padding:10px 14px;background:#fff;font-size:12px;color:#909399;line-height:1.6;border-top:1px solid #ebeef5}
+.check-item.expanded .check-content{display:block}
+.init-btns{display:flex;justify-content:center;gap:12px}
+
+/* ===== View 2: Tasks ===== */
+.tasks-wrap{padding:20px;flex:1;overflow:auto}
+.search-bar{background:#fff;padding:16px 20px;border-radius:8px;margin-bottom:16px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;box-shadow:0 1px 4px rgba(0,0,0,.04)}
+.search-bar .field{display:flex;flex-direction:column;gap:4px}
+.search-bar .field label{font-size:12px;color:#909399}
+.search-bar .field input,.search-bar .field select{width:160px;padding:7px 10px;border:1px solid #dcdfe6;border-radius:4px;font-size:13px;outline:none}
+.toolbar{margin-bottom:16px;display:flex;justify-content:space-between;align-items:center}
+.table-wrap{background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.04)}
+
+/* ===== View 3 & 4: Detail & Execute (shared sidebar layout) ===== */
+.main-split{flex:1;display:flex;overflow:hidden}
+.content-main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.video-panel{flex:1;background:#1a1a2e;position:relative;display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;overflow:hidden}
+.video-panel video,.video-panel img{width:100%;height:100%;object-fit:contain}
+.video-panel .placeholder{text-align:center;color:#ccc}
+.video-panel .placeholder .cam-icon{font-size:64px;display:block;margin-bottom:12px}
+.cam-overlay{position:absolute;bottom:12px;left:12px;background:rgba(0,0,0,.6);color:#fff;padding:4px 12px;border-radius:4px;font-size:12px}
+.cam-switcher{position:absolute;top:12px;right:12px;display:flex;gap:6px;background:rgba(0,0,0,.5);padding:6px 10px;border-radius:6px}
+.cam-switcher button{padding:4px 10px;border:1px solid rgba(255,255,255,.3);border-radius:4px;background:rgba(255,255,255,.1);color:#fff;cursor:pointer;font-size:12px}
+.cam-switcher button.active{background:#409eff;border-color:#409eff}
+.audio-bar{position:absolute;bottom:12px;right:12px;display:flex;align-items:center;gap:8px;background:rgba(0,0,0,.5);padding:6px 12px;border-radius:20px;color:#fff;font-size:12px}
+.audio-bar input[type=range]{width:80px}
+.scale-panel{flex-shrink:0;background:#fff;border-top:1px solid #e4e7ed;padding:16px 24px;min-height:90px}
+.scale-wrapper{position:relative;height:48px}
+.scale-track{width:100%;height:8px;background:#e4e7ed;border-radius:4px;position:absolute;top:20px}
+.scale-fill{height:100%;background:#409eff;border-radius:4px;transition:width 1s ease}
+.scale-marker{position:absolute;top:8px;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;cursor:pointer;transform:translateX(-50%);z-index:2}
+.scale-marker.flaw-confirmed{background:#f56c6c;color:#fff}
+.scale-marker.flaw-suspect{background:#e6a23c;color:#fff}
+.scale-marker.flaw-false{background:#909399;color:#fff}
+.scale-marker.agv{background:#67c23a;color:#fff;font-size:16px;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{transform:translateX(-50%) scale(1)}50%{transform:translateX(-50%) scale(1.15)}}
+.scale-labels{display:flex;justify-content:space-between;font-size:11px;color:#909399;margin-top:2px}
+
+.sidebar{width:380px;background:#fff;border-left:1px solid #e4e7ed;overflow-y:auto;flex-shrink:0;display:flex;flex-direction:column;gap:10px;padding:10px}
+
+/* ===== View 5: Settings ===== */
+.settings-wrap{flex:1;overflow:auto;padding:20px;display:flex;justify-content:center}
+.settings-card{width:620px;background:#fff;border-radius:8px;padding:28px 32px;box-shadow:0 2px 12px rgba(0,0,0,.06)}
+.settings-card .s-title{font-size:20px;font-weight:bold;text-align:center;margin-bottom:24px;padding-bottom:14px;border-bottom:2px solid #409eff;color:#303133}
+.settings-section{border:1px solid #e4e7ed;border-radius:8px;padding:16px 20px;margin-bottom:16px;background:#fafafa}
+.settings-section h3{font-size:15px;margin-bottom:14px;color:#409eff;display:flex;align-items:center;gap:6px}
+.camera-block{border:1px solid #e0e0e0;border-radius:6px;padding:12px 16px;margin-bottom:12px;background:#fff}
+.camera-block h4{font-size:13px;color:#606266;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #ebeef5;display:flex;align-items:center;justify-content:space-between}
+.camera-block h4 .cam-preview-btn{font-size:11px;font-weight:400;padding:3px 10px;border:1px solid #67c23a;border-radius:3px;background:#f0f9eb;color:#67c23a;cursor:pointer}
+.camera-block h4 .cam-preview-btn:hover{background:#67c23a;color:#fff}
+.settings-btns{display:flex;justify-content:center;gap:16px;padding-top:16px;border-top:1px solid #e4e7ed;margin-top:20px}
+
+/* ===== Camera Preview Modal ===== */
+.cam-preview-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.75);z-index:10001;display:none;justify-content:center;align-items:center;flex-direction:column}
+.cam-preview-overlay.show{display:flex}
+.cam-preview-overlay .preview-header{width:90%;max-width:960px;display:flex;justify-content:space-between;align-items:center;padding:8px 16px;color:#fff;font-size:14px}
+.cam-preview-overlay .preview-header .preview-close{font-size:28px;cursor:pointer;color:#ccc;line-height:1}
+.cam-preview-overlay .preview-header .preview-close:hover{color:#fff}
+.cam-preview-overlay .preview-video-wrap{width:90%;max-width:960px;background:#000;border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center;min-height:360px}
+.cam-preview-overlay .preview-video-wrap video{width:100%;max-height:70vh;object-fit:contain}
+.cam-preview-overlay .preview-video-wrap .preview-placeholder{color:#ccc;text-align:center;padding:60px 20px}
+.cam-preview-overlay .preview-controls{display:flex;gap:12px;align-items:center;padding:12px 16px;color:#fff;font-size:13px}
+.cam-preview-overlay .preview-controls input[type=range]{width:100px}
+
+/* ===== Fault Detail Modal ===== */
+.flaw-modal-body{display:flex;gap:16px}
+.flaw-modal-body .flaw-img{width:640px;height:480px;background:#1a1a2e;display:flex;align-items:center;justify-content:center;color:#fff;border-radius:8px;overflow:hidden;flex-shrink:0}
+.flaw-modal-body .flaw-img img{width:100%;height:100%;object-fit:contain}
+.flaw-modal-body .flaw-form{flex:1;min-width:240px}
+.flaw-modal-body .flaw-form .info-row{display:flex;margin-bottom:12px;font-size:13px}
+.flaw-modal-body .flaw-form .info-row .lbl{color:#909399;width:72px;flex-shrink:0}
+
+/* ===== Image Zoom ===== */
+.img-zoom-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.9);z-index:9996;display:none;cursor:zoom-out}
+.img-zoom-overlay.show{display:flex;align-items:center;justify-content:center}
+.img-zoom-overlay img{max-width:95%;max-height:95%;object-fit:contain}
+
+/* ===== Upload progress ===== */
+.upload-progress{background:#f0f9eb;border:1px solid #b7eb8f;border-radius:6px;padding:12px 16px}
+.upload-progress .bar-track{height:8px;background:#e4e7ed;border-radius:4px;margin:8px 0;overflow:hidden}
+.upload-progress .bar-fill{height:100%;background:#67c23a;border-radius:4px;transition:width .3s}
+
+/* ===== Alert banner ===== */
+.alert{background:#fef0f0;border:1px solid #fbc4c4;color:#f56c6c;padding:10px 16px;border-radius:4px;font-size:13px;text-align:center;margin:12px 0}
+
+/* Responsive */
+@media(max-width:1400px){.sidebar{width:320px}}
+@media(max-width:1200px){.sidebar{width:280px}.flaw-modal-body{flex-direction:column}.flaw-modal-body .flaw-img{width:100%;height:360px}}
+</style>
+</head>
+<body>
+
+<!-- ========== Toast Container ========== -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- ========== Confirm Dialog ========== -->
+<div class="confirm-overlay" id="confirmOverlay">
+  <div class="confirm-box">
+    <div class="icon" id="confirmIcon">⚠️</div>
+    <div class="msg" id="confirmMsg"></div>
+    <div class="btns">
+      <button id="confirmCancel">取消</button>
+      <button class="primary" id="confirmOk">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== Loading Overlay ========== -->
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="spinner"></div>
+  <div class="loading-text" id="loadingText">加载中...</div>
+</div>
+
+<!-- ========== Image Zoom Overlay ========== -->
+<div class="img-zoom-overlay" id="imgZoom"><img id="imgZoomSrc" src="" alt="放大图片"></div>
+
+<!-- ========== APP SHELL ========== -->
+<div class="app-shell">
+  <div class="app-header">
+    <div class="logo"><span class="icon">🚛</span>AGV智能巡检系统</div>
+    <div class="breadcrumb" id="breadcrumbNav">
+      <a onclick="navigateTo('init')">系统初始化</a>
+    </div>
+    <button class="btn btn-circle" onclick="navigateTo('settings')" title="系统设置">⚙️</button>
+  </div>
+  <div class="app-body">
+
+    <!-- ==================== VIEW 1: 系统初始化 ==================== -->
+    <div class="view active" id="view-init">
+      <div class="init-wrap">
+        <div class="init-card">
+          <h1>系统自检</h1>
+          <div class="check-list" id="checkList">
+            <div class="check-item" data-key="fs">
+              <div class="check-header"><div class="check-status">⏳</div><span>正在检查系统文件完整性</span></div>
+              <div class="check-content">解决方案：请重新安装本系统。</div>
+            </div>
+            <div class="check-item" data-key="db">
+              <div class="check-header"><div class="check-status">⏳</div><span>正在检测数据库系统连接</span></div>
+              <div class="check-content">解决方案：请检查数据库连接设置是否正确。</div>
+            </div>
+            <div class="check-item" data-key="agv">
+              <div class="check-header"><div class="check-status">⏳</div><span>正在与车辆控制系统通信</span></div>
+              <div class="check-content">解决方案：请检查巡检车IP与端口配置是否正确。</div>
+            </div>
+            <div class="check-item" data-key="cam">
+              <div class="check-header"><div class="check-status">⏳</div><span>正在检测摄像头通道状态</span></div>
+              <div class="check-content">解决方案：请检查摄像头IP及账号密码是否正确。</div>
+            </div>
+          </div>
+          <div class="init-btns">
+            <button class="btn" id="btnRecheck" style="display:none" onclick="runChecks()">🔄 重新检测</button>
+            <button class="btn btn-success" id="btnEnter" disabled onclick="navigateTo('tasks')">✅ 进入系统</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== VIEW 2: 任务列表 ==================== -->
+    <div class="view" id="view-tasks">
+      <div class="tasks-wrap">
+        <div class="search-bar">
+          <div class="field"><label>任务编号</label><input type="text" id="sTaskCode" placeholder="请输入"></div>
+          <div class="field"><label>创建人</label><input type="text" id="sCreator" placeholder="请输入"></div>
+          <div class="field"><label>执行人</label><input type="text" id="sExecutor" placeholder="请输入"></div>
+          <div class="field"><label>状态</label><select id="sStatus"><option value="">全部</option><option value="待巡视">待巡视</option><option value="巡视中">巡视中</option><option value="待上传">待上传</option><option value="已完成">已完成</option></select></div>
+          <button class="btn btn-primary" onclick="searchTasks()">🔍 搜索</button>
+          <button class="btn" onclick="resetSearch()">重置</button>
+        </div>
+        <div class="toolbar">
+          <button class="btn btn-primary" onclick="openTaskForm()">📹 新增任务</button>
+          <span style="font-size:13px;color:#909399" id="taskCount"></span>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>序号</th><th>任务编号</th><th>任务名称</th><th>起始地点</th><th>任务距离</th><th>创建人</th><th>执行人</th><th>执行时间</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody id="taskTableBody"></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="taskPagination"></div>
+      </div>
+    </div>
+
+    <!-- ==================== VIEW 3: 任务详情 ==================== -->
+    <div class="view" id="view-detail">
+      <div class="main-split">
+        <div class="content-main">
+          <div class="video-panel" id="detailImageArea">
+            <div class="placeholder"><span class="cam-icon">🖼️</span>故障图片显示区域<br><small id="detailImageHint">点击左侧故障项或下方进度条查看</small></div>
+            <img id="detailImage" style="display:none" src="" alt="故障图片" ondblclick="zoomImage(this.src)">
+          </div>
+          <div class="scale-panel">
+            <div class="scale-wrapper" id="detailScaleWrapper">
+              <div class="scale-track"><div class="scale-fill" style="width:100%"></div></div>
+              <div class="scale-labels"><span>0m</span><span id="detailScaleEnd">500m</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="sidebar">
+          <div class="card"><div class="card-header">📋 任务信息</div><div class="card-body" id="detailTaskInfo"></div></div>
+          <div class="card"><div class="card-header">⚠️ 故障历史</div><div class="card-body" style="padding:8px"><table class="data-table"><thead><tr><th>故障名称</th><th>类型</th><th>位置</th><th>状态</th></tr></thead><tbody id="detailFlawTable"></tbody></table></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== VIEW 4: 任务执行 ==================== -->
+    <div class="view" id="view-execute">
+      <div class="main-split">
+        <div class="content-main">
+          <div class="video-panel" id="executeVideoArea">
+            <div class="placeholder" id="videoPlaceholder">
+              <span class="cam-icon">🎥</span>实时视频流显示区域<br><small id="camLabel">摄像头1 - 前方视角</small>
+            </div>
+            <div id="easyPlayerContainer" style="width:100%;height:100%;display:none"></div>
+            <video id="executeVideo" style="display:none;width:100%;height:100%;object-fit:contain" autoplay muted playsinline></video>
+            <div class="cam-overlay" id="activeCamLabel">摄像头1 - 前方视角</div>
+            <div class="cam-switcher">
+              <button class="active" data-cam="1" onclick="switchCamera(1)">前</button>
+              <button data-cam="2" onclick="switchCamera(2)">左</button>
+              <button data-cam="3" onclick="switchCamera(3)">右</button>
+              <button data-cam="4" onclick="switchCamera(4)">后</button>
+            </div>
+            <div class="audio-bar">
+              🔊 <input type="range" min="0" max="100" value="50" oninput="setVolume(this.value)" id="volumeSlider">
+              <span id="muteBtn" onclick="toggleMute()" style="cursor:pointer">🔊</span>
+            </div>
+          </div>
+          <div class="scale-panel">
+            <div class="scale-wrapper" id="executeScaleWrapper">
+              <div class="scale-track"><div class="scale-fill" id="executeScaleFill" style="width:0%"></div></div>
+              <div class="scale-labels"><span>0m</span><span id="executeScaleEnd">--m</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="sidebar">
+          <div class="card"><div class="card-header">🎮 控制台</div><div class="card-body">
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn btn-primary btn-sm" onclick="refreshVideo()">🔄 刷新监控</button>
+              <button class="btn btn-success btn-sm" onclick="finishInspection()">✅ 完成巡检</button>
+              <button class="btn btn-danger btn-sm" onclick="abortInspection()">⏹ 终止巡检</button>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:12px;align-items:center">
+              <button class="btn btn-sm" id="btnForward" onclick="agvControl('forward')" style="flex:1">▶ 前进</button>
+              <button class="btn btn-sm" id="btnStop" onclick="agvControl('stop')" style="flex:1">⏸ 停止</button>
+              <button class="btn btn-sm" onclick="agvControl('backward')" style="flex:1">◀ 后退</button>
+            </div>
+          </div></div>
+          <div class="card"><div class="card-header">🚛 车辆状态 <span id="agvHeartbeat" style="font-size:11px;color:#909399">--</span></div><div class="card-body" id="executeStatusInfo"></div></div>
+          <div class="card"><div class="card-header">⚠️ 实时故障 <span id="flawAlertBadge" style="display:none;background:#f56c6c;color:#fff;border-radius:10px;padding:0 8px;font-size:11px">NEW</span></div><div class="card-body" style="padding:8px"><table class="data-table"><thead><tr><th>名称</th><th>类型</th><th>位置</th><th>状态</th></tr></thead><tbody id="executeFlawTable"></tbody></table></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== VIEW 5: 系统设置 ==================== -->
+    <div class="view" id="view-settings">
+      <div class="settings-wrap">
+        <div class="settings-card">
+          <div class="s-title">⚙️ 系统设置</div>
+          <form id="settingsForm" autocomplete="off">
+            <div class="settings-section"><h3>🚛 车辆控制设置</h3>
+              <div class="form-group"><label class="form-label required">车辆IP地址</label><input class="form-input" name="host" placeholder="如 192.168.1.100"><div class="form-error">请输入有效的IP地址</div><div class="form-help">用于连接AGV控制系统的IP地址</div></div>
+              <div class="form-row">
+                <div class="form-group"><label class="form-label required">车辆控制端口</label><input class="form-input" name="drivePort" type="number" placeholder="如 8001"><div class="form-error">端口号范围 1-65535</div></div>
+                <div class="form-group"><label class="form-label required">分析程序端口</label><input class="form-input" name="analysisPort" type="number" placeholder="如 8002"><div class="form-error">端口号范围 1-65535</div></div>
+              </div>
+            </div>
+            <div class="settings-section"><h3>☁️ 云端平台设置</h3>
+              <div class="form-group"><label class="form-label required">云端平台地址</label><input class="form-input" name="cloudUrl" placeholder="如 https://api.example.com"><div class="form-error">请输入有效的URL地址</div><div class="form-help">数据上传和远程监控平台地址</div></div>
+            </div>
+            <div class="settings-section"><h3>📹 摄像头设置</h3>
+              <div id="cameraSettings"><!-- dynamically generated --></div>
+            </div>
+          </form>
+          <div class="settings-btns">
+            <button class="btn" onclick="navigateTo('init')">取消</button>
+            <button class="btn btn-primary" onclick="saveSettings()">💾 保存设置</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- .app-body -->
+</div><!-- .app-shell -->
+
+<!-- ========== Task Form Modal ========== -->
+<div class="modal-overlay" id="taskFormModal">
+  <div class="modal-panel" style="width:640px">
+    <div class="modal-header"><span id="taskFormTitle">新增任务</span><span class="close" onclick="closeModal('taskFormModal')">✕</span></div>
+    <div class="modal-body">
+      <form id="taskForm" autocomplete="off">
+        <input type="hidden" name="id">
+        <div class="form-row"><div class="form-group"><label class="form-label required">任务名称</label><input class="form-input" name="taskName" maxlength="50" placeholder="请输入"></div><div class="form-group"><label class="form-label required">任务编号</label><input class="form-input" name="taskCode" maxlength="20" placeholder="自动生成" id="taskCodeInput"></div></div>
+        <div class="form-row"><div class="form-group"><label class="form-label required">起始地点</label><input class="form-input" name="startPos" placeholder="如 100"></div><div class="form-group"><label class="form-label required">任务距离</label><input class="form-input" name="taskTrip" placeholder="如 500"></div></div>
+        <div class="form-row"><div class="form-group"><label class="form-label required">创建人</label><input class="form-input" name="creator" maxlength="10" placeholder="请输入"></div><div class="form-group"><label class="form-label required">执行人</label><input class="form-input" name="executor" maxlength="10" placeholder="请输入"></div></div>
+        <div class="form-group"><label class="form-label">备注</label><textarea class="form-textarea" name="remark" maxlength="250" placeholder="可选备注"></textarea></div>
+      </form>
+      <div class="alert" id="taskStartWarn" style="display:none">⚠️ 点击下方[启动]按钮后巡线车将开始工作，请确保车辆周围环境安全。</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('taskFormModal')">取消</button>
+      <button class="btn btn-primary" id="btnSaveTask" onclick="saveTask(false)">确定</button>
+      <button class="btn btn-success" id="btnStartTask" style="display:none" onclick="saveTask(true)">🚀 保存并启动</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== Fault Detail Modal ========== -->
+<div class="modal-overlay" id="flawDetailModal">
+  <div class="modal-panel" style="width:1000px">
+    <div class="modal-header"><span>故障详情</span><span class="close" onclick="closeModal('flawDetailModal')">✕</span></div>
+    <div class="modal-body">
+      <div class="flaw-modal-body">
+        <div class="flaw-img"><img id="flawDetailImg" src="" alt="故障图片" ondblclick="zoomImage(this.src)"></div>
+        <div class="flaw-form" id="flawDetailInfo"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('flawDetailModal')">取消</button>
+      <button class="btn btn-primary" onclick="saveFlawConfirm()">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== Upload Modal ========== -->
+<div class="modal-overlay" id="uploadModal">
+  <div class="modal-panel" style="width:480px">
+    <div class="modal-header"><span>📤 数据上传</span><span class="close" onclick="closeModal('uploadModal')">✕</span></div>
+    <div class="modal-body">
+      <div id="uploadInfo">正在获取待上传数据...</div>
+      <div class="upload-progress" id="uploadProgress" style="display:none">
+        <div>上传进度</div>
+        <div class="bar-track"><div class="bar-fill" id="uploadBarFill" style="width:0%"></div></div>
+        <div style="font-size:12px;color:#67c23a" id="uploadStatus"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('uploadModal')">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== Camera Preview Modal ========== -->
+<div class="cam-preview-overlay" id="camPreviewOverlay">
+  <div class="preview-header">
+    <span id="camPreviewTitle">📹 摄像头预览</span>
+    <span class="preview-close" onclick="closeCamPreview()">✕</span>
+  </div>
+  <div class="preview-video-wrap" id="camPreviewVideoWrap">
+    <div class="preview-placeholder" id="camPreviewPlaceholder">正在连接摄像头...</div>
+    <video id="camPreviewVideo" style="display:none" autoplay muted playsinline></video>
+  </div>
+  <div class="preview-controls">
+    🔊 <input type="range" min="0" max="100" value="50" oninput="setPreviewVolume(this.value)" id="previewVolumeSlider">
+    <span id="previewMuteBtn" onclick="togglePreviewMute()" style="cursor:pointer">🔊</span>
+    <span style="margin-left:16px;font-size:12px;opacity:.7">按 ESC 或点击外部区域关闭</span>
+  </div>
+</div>
+
+<!-- ========== CryptoJS (EasyPlayer-pro dependency) ========== -->
+<script src="https://cdn.jsdelivr.net/npm/crypto-js@4.2.0/crypto-js.js"></script>
+<!-- ========== hls.js for HLS playback ========== -->
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<!-- ========== EasyPlayer-pro (H.265 WASM decoder) ========== -->
+<script src="手持终端任务附件 1.2/依赖/easyplayer/easyplayer/EasyPlayer-pro.js"></script>
+<script>
+// ==================== API CONFIG ====================
+const API = 'http://192.168.2.57/prod-api';
+const RTC_BASE = 'http://192.168.2.57/webrtc-api';
+const EASY_BASE = 'http://192.168.2.57/easy-api';
+const EASY_AUTH = 'Basic YWRtaW4xMjM6QWRtaW5AMTIz';
+
+// ==================== UTILS ====================
+function $(sel, ctx) { return (ctx||document).querySelector(sel); }
+function $$(sel, ctx) { return Array.from((ctx||document).querySelectorAll(sel)); }
+function fmtDate(d) { if(!d) return '-'; const dt = new Date(d); return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0')+' '+String(dt.getHours()).padStart(2,'0')+':'+String(dt.getMinutes()).padStart(2,'0')+':'+String(dt.getSeconds()).padStart(2,'0'); }
+
+const STATUS_MAP = { '待巡视':'tag-pending','巡视中':'tag-running','待上传':'tag-upload','已完成':'tag-done' };
+function statusTag(s) { return `<span class="tag ${STATUS_MAP[s]||''}">${s||'--'}</span>`; }
+
+// Toast
+let toastTimer;
+function showToast(msg, type='info') {
+  const c = $('#toastContainer');
+  const el = document.createElement('div'); el.className = 'toast ' + type; el.textContent = msg;
+  c.appendChild(el);
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.style.opacity='0';el.style.transition='opacity .3s';setTimeout(()=>el.remove(),300); }, 2500);
+}
+
+// Confirm
+function showConfirm(msg, icon, onOk) {
+  return new Promise(resolve => {
+    $('#confirmIcon').textContent = icon || '⚠️';
+    $('#confirmMsg').textContent = msg;
+    $('#confirmOverlay').classList.add('show');
+    $('#confirmOk').className = icon==='🗑️'?'danger':'primary';
+    const cleanup = () => { $('#confirmOverlay').classList.remove('show'); $('#confirmOk').onclick=null;$('#confirmCancel').onclick=null; };
+    $('#confirmOk').onclick = () => { cleanup(); resolve(true); if(onOk) onOk(); };
+    $('#confirmCancel').onclick = () => { cleanup(); resolve(false); };
+  });
+}
+
+// Loading
+function showLoading(msg) { $('#loadingText').textContent = msg||'加载中...'; $('#loadingOverlay').classList.add('show'); }
+function hideLoading() { $('#loadingOverlay').classList.remove('show'); }
+
+// Modal
+function openModal(id) { $('#'+id).classList.add('show'); }
+function closeModal(id) {
+  $('#'+id).classList.remove('show');
+  if(id==='uploadModal' && _uploadInterval) { clearInterval(_uploadInterval); _uploadInterval = null; } // BUG 5
+}
+
+// Image Zoom
+function zoomImage(src) {
+  if(!src) return;
+  const ov = $('#imgZoom'); const img = $('#imgZoomSrc');
+  img.src = src; ov.classList.add('show');
+  ov.onclick = () => ov.classList.remove('show');
+}
+
+// ==================== API ====================
+async function api(method, url, data) {
+  var opts = { method: method, headers: { 'Content-Type':'application/json' } };
+  if(data && method!=='GET') opts.body = JSON.stringify(data);
+  var query = '';
+  if(data && method==='GET') {
+    var params = new URLSearchParams();
+    for(var k in data) { if(data[k]!==null&&data[k]!==undefined&&data[k]!=='') params.append(k, data[k]); }
+    query = '?' + params.toString();
+  }
+  try {
+    var res = await fetch(API + url + query, opts);
+    if(!res.ok) return { code: res.status, msg: 'HTTP ' + res.status + ': ' + res.statusText }; // BUG 11
+    var json = await res.json();
+    return json;
+  } catch(e) {
+    console.error('API Error:', method, url, e);
+    return { code: -1, msg: '网络连接失败: ' + e.message };
+  }
+}
+
+// Easy API (camera devices)
+async function easyApi(url) {
+  try {
+    var res = await fetch(EASY_BASE + url, { headers: { 'Authorization': EASY_AUTH } });
+    if(!res.ok) return null; // BUG 11
+    return await res.json();
+  } catch(e) { console.error('EasyAPI Error:', e); return null; }
+}
+
+// ==================== APP STATE ====================
+const State = {
+  view: 'init',
+  checkResults: {},
+  allChecksPassed: false,
+  tasks: { list:[], total:0, pageNum:1, pageSize:10 },
+  searchParams: {},
+  currentTask: null,
+  currentFlaws: [],
+  currentDetailTaskId: null,
+  currentFlaw: null,
+  executingTaskId: null,
+  activeCam: 1,
+  pollTimer: null,
+  agvStatus: {},
+  config: null,
+  volume: 50,
+  muted: false
+};
+
+// ==================== NAVIGATION ====================
+function navigateTo(view, params) {
+  if(State.view === view && !params) return;
+  // Cleanup: stop polling
+  if(State.pollTimer) { clearInterval(State.pollTimer); State.pollTimer = null; }
+  _pollingActive = false;
+  // Cleanup: destroy video players (BUG 4)
+  var videoEl = $('#executeVideo');
+  if(videoEl) { videoEl.pause(); videoEl.src = ''; videoEl.style.display = 'none'; }
+  var epContainer = document.getElementById('easyPlayerContainer');
+  if(epContainer) {
+    if(epContainer._easyPlayer) { try { epContainer._easyPlayer.destroy(); } catch(e) {} epContainer._easyPlayer = null; }
+    if(epContainer._connectTimeout) { clearTimeout(epContainer._connectTimeout); }
+    epContainer.innerHTML = ''; epContainer.style.display = 'none';
+  }
+  if(_previewPlayer) { try { _previewPlayer.destroy(); } catch(e) {} _previewPlayer = null; }
+  var previewVideo = $('#camPreviewVideo');
+  if(previewVideo) { previewVideo.pause(); previewVideo.src = ''; }
+  // Hide all views
+  $$('.view').forEach(function(v){ v.classList.remove('active'); });
+  var target = $('#view-' + view);
+  if(target) target.classList.add('active');
+  State.view = view;
+  // Breadcrumb
+  var bc = $('#breadcrumbNav');
+  var routes = {
+    init: '<a onclick="navigateTo(\'init\')">系统初始化</a>',
+    tasks: '<a onclick="navigateTo(\'init\')">系统初始化</a> <span class="sep">/</span> <a onclick="navigateTo(\'tasks\')">任务列表</a>',
+    detail: '<a onclick="navigateTo(\'init\')">系统初始化</a> <span class="sep">/</span> <a onclick="navigateTo(\'tasks\')">任务列表</a> <span class="sep">/</span> 任务详情',
+    execute: '<a onclick="navigateTo(\'init\')">系统初始化</a> <span class="sep">/</span> <a onclick="navigateTo(\'tasks\')">任务列表</a> <span class="sep">/</span> 任务巡视',
+    settings: '<a onclick="navigateTo(\'init\')">系统初始化</a> <span class="sep">/</span> 系统设置'
+  };
+  bc.innerHTML = routes[view] || '';
+  // On-enter
+  if(view === 'init') runChecks();
+  else if(view === 'tasks') loadTasks();
+  else if(view === 'detail') loadTaskDetail(params ? params.taskId : null);
+  else if(view === 'execute') startExecute(params ? params.taskId : null);
+  else if(view === 'settings') loadSettings();
+}
+
+// ==================== VIEW 1: INIT ====================
+async function runChecks() {
+  State.checkResults = {}; State.allChecksPassed = false;
+  const items = $$('#checkList .check-item');
+  const keys = ['fs','db','agv','cam'];
+  const labels = ['正在检查系统文件完整性','正在检测数据库系统连接','正在与车辆控制系统通信','正在检测摄像头通道状态'];
+  const solutions = [
+    '解决方案：请重新安装本系统。',
+    '解决方案：请检查数据库连接设置是否正确。',
+    '解决方案：请检查巡检车IP与端口配置是否正确。',
+    '解决方案：请检查摄像头IP及账号密码是否正确。'
+  ];
+
+  // Reset all to loading
+  items.forEach((item,i) => {
+    item.classList.remove('expanded');
+    const statusEl = item.querySelector('.check-status');
+    statusEl.className = 'check-status loading';
+    statusEl.textContent = '';
+    item.querySelector('.check-header span').textContent = labels[i];
+    item.querySelector('.check-content').textContent = solutions[i];
+  });
+  $('#btnEnter').disabled = true;
+  $('#btnRecheck').style.display = 'none';
+
+  const endpoints = ['/system/check/fs','/system/check/db','/system/check/agv','/system/check/cam'];
+
+  for(let i=0; i<4; i++) {
+    const item = items[i];
+    const statusEl = item.querySelector('.check-status');
+    try {
+      const res = await api('GET', endpoints[i]);
+      const ok = res.code === 200 || res.code === 0 || res.data === true || res === true;
+      State.checkResults[keys[i]] = ok;
+      if(ok) {
+        statusEl.className = 'check-status success';
+        statusEl.textContent = '✓';
+      } else {
+        statusEl.className = 'check-status error';
+        statusEl.textContent = '✕';
+        item.classList.add('expanded');
+      }
+    } catch(e) {
+      State.checkResults[keys[i]] = false;
+      statusEl.className = 'check-status error';
+      statusEl.textContent = '✕';
+      item.classList.add('expanded');
+    }
+  }
+
+  State.allChecksPassed = Object.values(State.checkResults).every(v=>v===true);
+  if(State.allChecksPassed) {
+    $('#btnEnter').disabled = false;
+    $('#btnRecheck').style.display = 'none';
+    showToast('所有系统检查已通过！', 'success');
+  } else {
+    $('#btnEnter').disabled = true;
+    $('#btnRecheck').style.display = 'inline-flex';
+    const failed = keys.filter(k=>!State.checkResults[k]).length;
+    showToast(`${failed} 项检查未通过，请检查配置或重新检测`, 'warning');
+  }
+}
+
+// Check item click to expand/collapse
+$('#checkList').addEventListener('click', function(e) {
+  const header = e.target.closest('.check-header');
+  if(header) { header.parentElement.classList.toggle('expanded'); }
+});
+
+// ==================== VIEW 2: TASKS ====================
+async function loadTasks() {
+  showLoading('加载任务列表...');
+  const params = {
+    pageNum: State.tasks.pageNum,
+    pageSize: State.tasks.pageSize,
+    ...State.searchParams
+  };
+  const res = await api('GET', '/agv/task/list', params);
+  hideLoading();
+  if(res.code === 200 || res.code === 0) {
+    State.tasks.list = res.rows || [];
+    State.tasks.total = res.total || 0;
+  } else {
+    showToast(res.msg || '加载任务列表失败', 'error');
+    State.tasks.list = []; State.tasks.total = 0;
+  }
+  renderTaskTable();
+}
+
+function renderTaskTable() {
+  const tbody = $('#taskTableBody');
+  if(!State.tasks.list.length) {
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px;color:#909399">暂无数据</td></tr>';
+  } else {
+    tbody.innerHTML = State.tasks.list.map((t,i) => `
+      <tr>
+        <td>${(State.tasks.pageNum-1)*State.tasks.pageSize + i + 1}</td>
+        <td><a onclick="viewTaskDetail(${t.id})">${t.taskCode||'--'}</a></td>
+        <td>${t.taskName||'--'}</td>
+        <td>${t.startPos||'--'} 米</td>
+        <td>${t.taskTrip||'--'} 米</td>
+        <td>${t.creator||'--'}</td>
+        <td>${t.executor||'--'}</td>
+        <td>${fmtDate(t.execTime)}</td>
+        <td>${statusTag(t.taskStatus)}</td>
+        <td>${getTaskActions(t)}</td>
+      </tr>`).join('');
+  }
+  $('#taskCount').textContent = `共 ${State.tasks.total} 条记录，每页 ${State.tasks.pageSize} 条`;
+  renderTaskPagination();
+}
+
+function getTaskActions(t) {
+  const actions = [];
+  switch(t.taskStatus) {
+    case '待巡视':
+      actions.push(`<button class="btn-text" style="color:#67c23a" onclick="startTaskAndExecute(${t.id})">▶ 启动</button>`);
+      actions.push(`<button class="btn-text" onclick="openTaskForm(${t.id})">修改</button>`);
+      actions.push(`<button class="btn-text danger" onclick="deleteTask(${t.id})">删除</button>`);
+      break;
+    case '巡视中':
+      actions.push(`<button class="btn-text" style="color:#67c23a" onclick="endTaskDirectly(${t.id},false)">✅ 完成</button>`);
+      actions.push(`<button class="btn-text danger" onclick="endTaskDirectly(${t.id},true)">⏹ 终止</button>`);
+      actions.push(`<button class="btn-text" onclick="navigateTo('execute',{taskId:${t.id}})">进入巡视</button>`);
+      break;
+    case '待上传':
+      actions.push(`<button class="btn-text" onclick="uploadTask(${t.id})">上传</button>`);
+      break;
+    case '已完成':
+      actions.push(`<button class="btn-text" onclick="viewTaskDetail(${t.id})">查看</button>`);
+      break;
+    default:
+      actions.push(`<button class="btn-text" onclick="viewTaskDetail(${t.id})">查看</button>`);
+  }
+  return actions.join(' ');
+}
+
+function renderTaskPagination() {
+  const total = State.tasks.total;
+  const ps = State.tasks.pageSize;
+  const pn = State.tasks.pageNum;
+  const totalPages = Math.ceil(total/ps) || 1;
+  let html = `<span class="info">共 ${total} 条</span>`;
+  html += `<button class="page-btn" ${pn<=1?'disabled':''} onclick="goPage(${pn-1})">上一页</button>`;
+  for(let i=1; i<=totalPages; i++) {
+    html += `<button class="page-btn${i===pn?' active':''}" onclick="goPage(${i})">${i}</button>`;
+  }
+  html += `<button class="page-btn" ${pn>=totalPages?'disabled':''} onclick="goPage(${pn+1})">下一页</button>`;
+  $('#taskPagination').innerHTML = html;
+}
+
+function goPage(n) {
+  const totalPages = Math.ceil(State.tasks.total/State.tasks.pageSize)||1;
+  if(n<1||n>totalPages) return;
+  State.tasks.pageNum = n;
+  loadTasks();
+}
+
+function searchTasks() {
+  State.searchParams = {
+    taskCode: $('#sTaskCode').value.trim()||undefined,
+    creator: $('#sCreator').value.trim()||undefined,
+    executor: $('#sExecutor').value.trim()||undefined,
+    taskStatus: $('#sStatus').value||undefined
+  };
+  Object.keys(State.searchParams).forEach(k=>{if(!State.searchParams[k])delete State.searchParams[k];});
+  State.tasks.pageNum = 1;
+  loadTasks();
+}
+
+function resetSearch() {
+  $('#sTaskCode').value='';$('#sCreator').value='';$('#sExecutor').value='';$('#sStatus').value='';
+  State.searchParams = {}; State.tasks.pageNum = 1;
+  loadTasks();
+}
+
+// Task Form
+async function openTaskForm(taskId) {
+  $('#taskForm').reset();
+  $('#taskForm').querySelector('[name="id"]').value = '';
+  $('#taskStartWarn').style.display = 'none';
+  $('#btnSaveTask').style.display = ''; $('#btnStartTask').style.display = 'inline-flex'; $('#taskStartWarn').style.display = 'block';
+  if(taskId) {
+    $('#taskFormTitle').textContent = '修改任务';
+    showLoading('加载任务信息...');
+    const res = await api('GET', '/agv/task/' + taskId);
+    hideLoading();
+    if(res.code===200||res.code===0) {
+      const t = res.data;
+      const form = $('#taskForm');
+      form.querySelector('[name="id"]').value = t.id;
+      form.querySelector('[name="taskName"]').value = t.taskName||'';
+      form.querySelector('[name="taskCode"]').value = t.taskCode||'';
+      form.querySelector('[name="startPos"]').value = t.startPos||'';
+      form.querySelector('[name="taskTrip"]').value = t.taskTrip||'';
+      form.querySelector('[name="creator"]').value = t.creator||'';
+      form.querySelector('[name="executor"]').value = t.executor||'';
+      form.querySelector('[name="remark"]').value = t.remark||'';
+      $('#taskStartWarn').style.display = 'block';
+      $('#btnStartTask').style.display = 'inline-flex';
+    } else { showToast('加载任务失败: '+(res.msg||'未知错误'), 'error'); return; }
+  } else {
+    $('#taskFormTitle').textContent = '新增任务';
+    $('#taskCodeInput').placeholder = '保存后自动生成';
+  }
+  openModal('taskFormModal');
+}
+
+async function saveTask(andStart) {
+  const form = $('#taskForm');
+  const data = {
+    taskName: form.querySelector('[name="taskName"]').value.trim(),
+    taskCode: form.querySelector('[name="taskCode"]').value.trim(),
+    startPos: form.querySelector('[name="startPos"]').value.trim(),
+    taskTrip: form.querySelector('[name="taskTrip"]').value.trim(),
+    creator: form.querySelector('[name="creator"]').value.trim(),
+    executor: form.querySelector('[name="executor"]').value.trim(),
+    remark: form.querySelector('[name="remark"]').value.trim(),
+  };
+  const id = form.querySelector('[name="id"]').value;
+  if(id) data.id = parseInt(id);
+
+  // Validation
+  if(!data.taskName) { showToast('请输入任务名称', 'warning'); return; }
+  if(!data.startPos) { showToast('请输入起始地点', 'warning'); return; }
+  if(!data.taskTrip) { showToast('请输入任务距离', 'warning'); return; }
+  if(!data.creator) { showToast('请输入创建人', 'warning'); return; }
+  if(!data.executor) { showToast('请输入执行人', 'warning'); return; }
+
+  showLoading('保存中...');
+  const method = id ? 'PUT' : 'POST';
+  const res = await api(method, '/agv/task', data);
+  hideLoading();
+  if(res.code===200||res.code===0) {
+    showToast('保存成功', 'success');
+    closeModal('taskFormModal');
+    const savedId = id || (res.data && res.data.id);
+    if(andStart && savedId) {
+      // Start the task
+      const startRes = await api('POST', '/agv/task/start/' + savedId);
+      if(startRes.code===200||startRes.code===0) {
+        navigateTo('execute', { taskId: savedId });
+      } else {
+        showToast('任务创建成功但启动失败: '+(startRes.msg||''), 'warning');
+        loadTasks();
+      }
+    } else {
+      loadTasks();
+    }
+  } else {
+    showToast('保存失败: '+(res.msg||'未知错误'), 'error');
+  }
+}
+
+async function deleteTask(id) {
+  const ok = await showConfirm('确定要删除该任务吗？此操作不可恢复。', '🗑️');
+  if(!ok) return;
+  showLoading('删除中...');
+  const res = await api('DELETE', '/agv/task/' + id);
+  hideLoading();
+  if(res.code===200||res.code===0) { showToast('删除成功', 'success'); loadTasks(); }
+  else showToast('删除失败: '+(res.msg||''), 'error');
+}
+
+async function startTaskAndExecute(taskId) {
+  var ok = await showConfirm('启动任务后巡线车将开始工作，请确保车辆周围环境安全。确认启动？', '🚀');
+  if(!ok) return;
+  showLoading('启动任务...');
+  var res = await api('POST', '/agv/task/start/' + taskId);
+  hideLoading();
+  if(res.code===200||res.code===0) {
+    showToast('任务已启动，正在进入巡视页...', 'success');
+    navigateTo('execute', { taskId: taskId });
+  } else {
+    showToast('启动失败: '+(res.msg||'未知错误'), 'error');
+  }
+}
+
+async function endTaskDirectly(taskId, isAbort) {
+  var label = isAbort ? '终止' : '完成';
+  var icon = isAbort ? '⏹' : '✅';
+  var ok = await showConfirm('确定要' + label + '该巡检任务吗？', icon);
+  if(!ok) return;
+  showLoading('正在' + label + '任务...');
+  var res = await api('POST', '/agv/task/end/' + taskId + '?isAbort=' + (isAbort ? 'true' : 'false'));
+  hideLoading();
+  if(res.code===200||res.code===0) {
+    showToast('任务已' + label, isAbort ? 'warning' : 'success');
+    loadTasks();
+  } else {
+    showToast(label + '失败: ' + (res.msg||'未知错误'), 'error');
+  }
+}
+
+// ==================== VIEW 3: TASK DETAIL ====================
+async function loadTaskDetail(taskId) {
+  if(!taskId) { showToast('无效的任务ID', 'error'); navigateTo('tasks'); return; } // BUG 14
+  State.currentDetailTaskId = taskId;
+  showLoading('加载任务详情...');
+  var resList = await Promise.all([
+    api('GET', '/agv/task/' + taskId),
+    api('GET', '/agv/flaw/list', { taskId: taskId, pageNum: 1, pageSize: 999 })
+  ]);
+  var taskRes = resList[0], flawRes = resList[1];
+  hideLoading();
+  if(taskRes.code!==200&&taskRes.code!==0) { showToast('加载任务详情失败', 'error'); return; }
+  const task = taskRes.data;
+  State.currentTask = task;
+  State.currentFlaws = (flawRes.rows||[]).filter(f=>!f.deleteFlag);
+
+  // Task info card
+  const confirmed = State.currentFlaws.filter(f=>f.confirmed).length;
+  const suspect = State.currentFlaws.filter(f=>!f.confirmed).length;
+  $('#detailTaskInfo').innerHTML = `
+    <div class="info-row"><span class="lbl">📄 任务编号</span><span>${task.taskCode||'--'}</span></div>
+    <div class="info-row"><span class="lbl">⏰ 开始时间</span><span>${fmtDate(task.execTime)}</span></div>
+    <div class="info-row"><span class="lbl">⏰ 结束时间</span><span>${fmtDate(task.endTime)}</span></div>
+    <div class="info-row"><span class="lbl">📍 巡视距离</span><span>${task.taskTrip||'--'} 米</span></div>
+    <div class="info-row"><span class="lbl">⚠️ 故障总计</span><span><b>${State.currentFlaws.length}</b></span></div>
+    <div class="info-row"><span class="lbl">✅ 已确认</span><span style="color:#f56c6c;font-weight:bold">${confirmed}</span></div>
+    <div class="info-row"><span class="lbl">❓ 疑似</span><span style="color:#e6a23c;font-weight:bold">${suspect}</span></div>
+  `.replace(/class="info-row"/g,'style="display:flex;margin-bottom:12px;font-size:13px"').replace(/class="lbl"/g,'style="color:#909399;width:96px;flex-shrink:0"');
+
+  // Scale bar
+  renderDetailScale(task, State.currentFlaws);
+  // Flaw table
+  renderDetailFlawTable(State.currentFlaws);
+  // Show first flaw image
+  if(State.currentFlaws.length>0) showFlawImage(State.currentFlaws[0]);
+  else { $('#detailImage').style.display='none';$('#detailImageArea .placeholder').style.display=''; }
+}
+
+function renderDetailScale(task, flaws) {
+  var dist = parseFloat(task.taskTrip);
+  if(isNaN(dist) || dist <= 0) dist = 500; // BUG 6
+  $('#detailScaleEnd').textContent = dist + 'm';
+  const wrapper = $('#detailScaleWrapper');
+  // Remove old markers
+  wrapper.querySelectorAll('.scale-marker').forEach(m=>m.remove());
+  // Add flaw markers
+  flaws.forEach(f => {
+    const pct = Math.min(((parseFloat(f.flawDistance)||0)/dist)*100, 100);
+    let cls = 'flaw-suspect';
+    if(f.confirmed) cls = 'flaw-confirmed';
+    const marker = document.createElement('div');
+    marker.className = 'scale-marker ' + cls;
+    marker.style.left = pct + '%';
+    marker.textContent = '📍';
+    marker.title = f.flawName + ' (' + (f.flawDistance||'?') + 'm)';
+    marker.onclick = () => showFlawImage(f);
+    wrapper.appendChild(marker);
+  });
+}
+
+function renderDetailFlawTable(flaws) {
+  const statusLabel = f => f.confirmed ? '<span class="tag tag-done">已确认</span>' : '<span class="tag tag-pending">待确认</span>';
+  $('#detailFlawTable').innerHTML = flaws.length ? flaws.map(f => `
+    <tr onclick="showFlawImage(currentFlawById(${f.id}))" style="cursor:pointer;${f.confirmed?'background:#fef0f0':''}">
+      <td><a>${f.flawName||'--'}</a></td>
+      <td>${f.flawType||'--'}</td>
+      <td>${f.flawDistance||'--'}m</td>
+      <td>${statusLabel(f)}</td>
+    </tr>`).join('') : '<tr><td colspan="4" style="text-align:center;padding:20px;color:#909399">无故障记录</td></tr>';
+}
+
+function currentFlawById(id) { return State.currentFlaws.find(f=>f.id===id); }
+
+function showFlawImage(flaw) {
+  if(!flaw) return; // BUG 7
+  State.currentFlaw = flaw;
+  var imgArea = $('#detailImageArea');
+  var img = $('#detailImage');
+  var placeholder = imgArea ? imgArea.querySelector('.placeholder') : null;
+  if(flaw.flawImageUrl) {
+    img.src = flaw.flawImageUrl;
+    img.style.display = ''; placeholder.style.display = 'none';
+  } else {
+    img.style.display = 'none'; placeholder.style.display = '';
+  }
+  $('#detailImageHint').textContent = flaw.flawName + ' - ' + (flaw.flawDistance||'?') + 'm';
+}
+
+function viewTaskDetail(taskId) { navigateTo('detail', { taskId }); }
+
+function openFlawDetail(flaw) {
+  if(!flaw) return; // BUG 7
+  State.currentFlaw = flaw;
+  // Populate modal
+  $('#flawDetailImg').src = flaw.flawImageUrl || '';
+  const desc = flaw.flawDesc||''; const remark = flaw.remark||'';
+  $('#flawDetailInfo').innerHTML = `
+    <div class="card" style="border:none"><div class="card-header">故障信息</div><div class="card-body">
+      <div style="display:flex;margin-bottom:12px;font-size:13px"><span style="color:#909399;width:72px">名称</span><span>${flaw.flawName||'--'}</span></div>
+      <div style="display:flex;margin-bottom:12px;font-size:13px"><span style="color:#909399;width:72px">类型</span><span>${flaw.flawType||'--'}</span></div>
+      <div style="display:flex;margin-bottom:12px;font-size:13px"><span style="color:#909399;width:72px">描述</span><span>${desc}</span></div>
+      <div style="display:flex;margin-bottom:12px;font-size:13px"><span style="color:#909399;width:72px">位置</span><span>${flaw.flawDistance||'--'} m</span></div>
+      <div style="display:flex;margin-bottom:12px;font-size:13px"><span style="color:#909399;width:72px">等级</span><span>${flaw.level||'--'}</span></div>
+      <div style="display:flex;margin-bottom:12px;font-size:13px"><span style="color:#909399;width:72px">长度</span><span>${flaw.flawLength||'--'} m</span></div>
+      <div style="display:flex;margin-bottom:12px;font-size:13px"><span style="color:#909399;width:72px">面积</span><span>${flaw.flawArea||'--'} m²</span></div>
+      <div style="display:flex;margin-bottom:12px;font-size:13px"><span style="color:#909399;width:72px">数量</span><span>${flaw.countNum||'--'}</span></div>
+      <div style="display:flex;margin-bottom:12px;font-size:13px;align-items:center"><span style="color:#909399;width:72px">是否属实</span>
+        <label style="margin-right:16px"><input type="radio" name="flawConfirmed" value="true" ${flaw.confirmed?'checked':''}> 是</label>
+        <label><input type="radio" name="flawConfirmed" value="false" ${!flaw.confirmed?'checked':''}> 否</label>
+      </div>
+      <div style="font-size:13px"><span style="color:#909399">补充说明</span>
+        <textarea id="flawRemark" style="width:100%;height:72px;padding:8px;border:1px solid #dcdfe6;border-radius:4px;margin-top:4px;resize:vertical;font-size:13px" placeholder="请输入补充说明">${remark}</textarea>
+      </div>
+    </div></div>`;
+  openModal('flawDetailModal');
+}
+
+async function saveFlawConfirm() {
+  const flaw = State.currentFlaw;
+  if(!flaw) return;
+  const confirmed = document.querySelector('input[name="flawConfirmed"]:checked')?.value === 'true';
+  const remark = $('#flawRemark')?.value || '';
+  showLoading('保存中...');
+  const res = await api('PUT', '/agv/flaw', { ...flaw, confirmed, remark });
+  hideLoading();
+  if(res.code===200||res.code===0) {
+    showToast('故障状态已更新', 'success');
+    closeModal('flawDetailModal');
+    if(State.view==='detail') loadTaskDetail(State.currentDetailTaskId);
+    else if(State.view==='execute') refreshExecuteFlaws();
+  } else {
+    showToast('保存失败: '+(res.msg||''), 'error');
+  }
+}
+
+// ==================== VIEW 4: TASK EXECUTE ====================
+async function startExecute(taskId) {
+  if(!taskId) { showToast('无效的任务ID，请从任务列表进入', 'error'); navigateTo('tasks'); return; } // BUG 14
+  State.executingTaskId = taskId;
+  showLoading('正在加载任务和配置...');
+  // Load task info
+  var res = await api('GET', '/agv/task/' + taskId);
+  if(res.code===200||res.code===0) { State.currentTask = res.data; }
+  else { hideLoading(); showToast('加载任务失败: '+(res.msg||'未知错误'), 'error'); return; }
+  // Ensure config is loaded (for camera URLs)
+  if(!State.config || !State.config.host) {
+    var cfgRes = await api('GET', '/agv/config');
+    if(cfgRes.code===200||cfgRes.code===0) { State.config = cfgRes.data || {}; }
+  }
+  // Also load camera devices from easy-api for webrtc streaming
+  if(!State._camDevices) {
+    try {
+      var devData = await easyApi('/devices?page=1&size=999&status=&id&name');
+      console.log('easy-api raw response:', JSON.stringify(devData));
+      if(devData) {
+        // Handle various response formats (easy-api returns {items:[...], total:N})
+        var list = (devData.items) ? devData.items :
+                   (devData.data && devData.data.list) ? devData.data.list :
+                   (devData.data && devData.data.items) ? devData.data.items :
+                   (devData.list) ? devData.list :
+                   (devData.data && Array.isArray(devData.data)) ? devData.data :
+                   (Array.isArray(devData)) ? devData : null;
+        if(list && list.length) {
+          State._camDevices = list;
+          console.log('Camera devices loaded:', list.length, 'first:', JSON.stringify(list[0]));
+        } else {
+          console.warn('easy-api returned no devices. Response keys:', Object.keys(devData));
+        }
+      } else {
+        console.warn('easy-api returned null/undefined. Check EASY_BASE and auth.');
+      }
+    } catch(e) { console.warn('Failed to load camera devices:', e); }
+  }
+  $('#executeScaleEnd').textContent = (State.currentTask?.taskTrip||'--') + 'm';
+  $('#executeScaleFill').style.width = '0%';
+  hideLoading();
+  refreshExecuteFlaws();
+  connectVideo();
+  startPolling();
+}
+
+function connectVideo() {
+  var config = State.config || {};
+  var camDevices = State._camDevices || [];
+  var camDevice = camDevices.length >= State.activeCam ? camDevices[State.activeCam - 1] : null;
+
+  // Build FLV stream URL (proven working: webrtc-api/live/{deviceId}_01.flv)
+  var streamUrl = '';
+  if(camDevice && camDevice.id) {
+    streamUrl = RTC_BASE + '/live/' + camDevice.id + '_01.flv';
+  }
+  if(!streamUrl) {
+    streamUrl = RTC_BASE + '/live/cam' + State.activeCam + '_01.flv';
+  }
+
+  var videoEl = document.getElementById('executeVideo');
+  var placeholder = document.getElementById('videoPlaceholder');
+  var container = document.getElementById('easyPlayerContainer');
+  var EP = window['EasyPlayer-pro'];
+
+  // Reset
+  if(videoEl) { videoEl.style.display = 'none'; videoEl.src = ''; }
+  if(container) { container.style.display = 'none'; container.innerHTML = ''; }
+  if(placeholder) {
+    placeholder.style.display = '';
+    placeholder.innerHTML = '<span class="cam-icon">🎥</span>正在连接...<br><small>H.265 WASM 解码</small>';
+  }
+
+  if(!EP) {
+    console.warn('EasyPlayer-pro not loaded');
+    if(placeholder) placeholder.innerHTML = '<span class="cam-icon">⚠️</span>EasyPlayer未加载<br><small>请通过HTTP访问(非file://)</small>';
+    return;
+  }
+
+  if(!streamUrl) {
+    if(placeholder) placeholder.innerHTML = '<span class="cam-icon">⚠️</span>未配置摄像头地址';
+    return;
+  }
+
+  console.log('EasyPlayer connecting: ' + streamUrl);
+
+  try {
+    // EasyPlayer-pro MUST receive real DOM element (NOT string)
+    // The element MUST be a div (NOT canvas, NOT video)
+    if(!container) {
+      // Create container if it doesn't exist
+      var videoArea = document.getElementById('executeVideoArea');
+      if(videoArea) {
+        container = document.createElement('div');
+        container.id = 'easyPlayerContainer';
+        container.style.cssText = 'width:100%;height:100%;position:absolute;top:0;left:0;z-index:5';
+        videoArea.appendChild(container);
+      }
+    }
+    if(!container) { console.error('No container for EasyPlayer'); return; }
+
+    container.style.display = '';
+    container.innerHTML = '';
+
+    var player = new EP({
+      container: container,
+      url: streamUrl,
+      isLive: true,
+      autoplay: true,
+      muted: State.muted,
+      lang: 'zh'
+    });
+    container._easyPlayer = player;
+    if(placeholder) placeholder.style.display = 'none';
+    console.log('EasyPlayer initialized: ' + streamUrl);
+
+    // Poll for video element to confirm rendering
+    var checkCount = 0;
+    var checkTimer = setInterval(function() {
+      checkCount++;
+      var kid = container.querySelector('video');
+      if(kid && kid.videoWidth > 0) {
+        clearInterval(checkTimer);
+        console.log('EasyPlayer rendering: ' + kid.videoWidth + 'x' + kid.videoHeight);
+      } else if(checkCount > 20) {
+        clearInterval(checkTimer);
+        console.warn('EasyPlayer timeout - no video render');
+        if(placeholder) {
+          placeholder.style.display = '';
+          placeholder.innerHTML = '<span class="cam-icon">⚠️</span>视频未渲染<br><small>请检查摄像头连接</small>';
+        }
+      }
+    }, 500);
+
+  } catch(e) {
+    console.error('EasyPlayer error:', e);
+    if(placeholder) {
+      placeholder.style.display = '';
+      placeholder.innerHTML = '<span class="cam-icon">⚠️</span>播放失败<br><small>' + e.message + '</small>';
+    }
+  }
+}
+
+async function switchCamera(camNum) {
+  State.activeCam = camNum;
+  $$('#executeVideoArea .cam-switcher button').forEach(function(b){b.classList.remove('active');});
+  var btn = document.querySelector('#executeVideoArea .cam-switcher button[data-cam="' + camNum + '"]');
+  if(btn) btn.classList.add('active');
+  var labels = ['前方视角','左侧视角','右侧视角','后方视角'];
+  $('#activeCamLabel').textContent = '摄像头' + camNum + ' - ' + (labels[camNum-1]||'');
+  // Reconnect: destroy prev player in container
+  var epContainer = document.getElementById('easyPlayerContainer');
+  if(epContainer && epContainer._easyPlayer) {
+    try { epContainer._easyPlayer.destroy(); } catch(e) {}
+    epContainer._easyPlayer = null;
+  }
+  if(epContainer && epContainer._connectTimeout) { clearTimeout(epContainer._connectTimeout); }
+  connectVideo();
+}
+
+function refreshVideo() { switchCamera(State.activeCam); }
+
+function setVolume(v) {
+  State.volume = parseInt(v, 10);
+  var video = $('#executeVideo');
+  if(video) video.volume = State.volume/100;
+  var container = document.getElementById('easyPlayerContainer');
+  if(container && container._easyPlayer) { try { container._easyPlayer.volume(State.volume/100); } catch(e) {} }
+}
+
+function toggleMute() {
+  State.muted = !State.muted;
+  var video = $('#executeVideo');
+  if(video) video.muted = State.muted;
+  var container = document.getElementById('easyPlayerContainer');
+  if(container && container._easyPlayer) { try { container._easyPlayer.muted(State.muted); } catch(e) {} }
+  var muteBtn = $('#muteBtn'); if(muteBtn) muteBtn.textContent = State.muted ? '🔇' : '🔊';
+  var volSlider = $('#volumeSlider'); if(volSlider) volSlider.value = State.muted ? 0 : State.volume;
+}
+
+var _pollingActive = false;
+function startPolling() {
+  if(State.pollTimer) clearInterval(State.pollTimer);
+  State.pollTimer = setInterval(async function() {
+    if(State.view !== 'execute') { clearInterval(State.pollTimer); State.pollTimer = null; return; }
+    // Guard against overlapping cycles (BUG 2)
+    if(_pollingActive) return;
+    _pollingActive = true;
+    try {
+      // Poll AGV heartbeat (only once per cycle - BUG 13)
+      var hb = await api('GET', '/agv/movement/heartbeat');
+      if((hb.code===200||hb.code===0) && hb.data) {
+        State.agvStatus = hb.data;
+        updateExecuteStatus();
+      }
+      // Poll live flaws
+      if(State.executingTaskId) {
+        try {
+          var live = await api('GET', '/agv/flaw/live/' + State.executingTaskId);
+          if(live.code===200||live.code===0) {
+            var raw = live.data;
+            console.log('flaw/live response:', JSON.stringify(raw));
+            var flaws = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+            for(var i=0; i<flaws.length; i++) {
+              var newFlaw = flaws[i];
+              if(!newFlaw || newFlaw.shown) continue;
+              var name = newFlaw.flawName || newFlaw.flaw_name || newFlaw.name || '未知故障';
+              var dist = newFlaw.flawDistance != null ? newFlaw.flawDistance : (newFlaw.flaw_distance != null ? newFlaw.flaw_distance : '?');
+              // Use a separate variable to avoid polluting State.currentFlaw (BUG 3)
+              State._liveFlaw = newFlaw;
+              $('#flawAlertBadge').style.display = '';
+              showToast('⚠️ 检测到新故障: ' + name + ' (' + dist + 'm)', 'warning');
+              await api('PUT', '/agv/flaw', { ...newFlaw, shown: true });
+              refreshExecuteFlaws();
+              setTimeout(function(){ $('#flawAlertBadge').style.display='none'; }, 5000);
+            }
+          }
+        } catch(e) {}
+      }
+    } finally {
+      _pollingActive = false;
+    }
+  }, 3000);
+}
+
+function updateExecuteStatus() {
+  var s = State.agvStatus || {};
+  var distVal = parseFloat(s.currentPosition);
+  if(isNaN(distVal)) distVal = 0;
+  var total = parseFloat(State.currentTask?.taskTrip);
+  if(isNaN(total) || total <= 0) total = 500;
+  var pct = Math.min((distVal/total)*100, 100);
+  $('#executeScaleFill').style.width = pct + '%';
+  // Update AGV marker
+  let agvMarker = $('#executeScaleWrapper').querySelector('.scale-marker.agv');
+  if(!agvMarker) {
+    agvMarker = document.createElement('div');
+    agvMarker.className = 'scale-marker agv';
+    agvMarker.textContent = '🚛';
+    agvMarker.title = 'AGV当前位置';
+    $('#executeScaleWrapper').appendChild(agvMarker);
+  }
+  agvMarker.style.left = pct + '%';
+
+  var runningHtml = s.isRunning ? '<span style="color:#67c23a">● 行驶中</span>' : '<span style="color:#909399">● 已停止</span>';
+  $('#executeStatusInfo').innerHTML =
+    '<div style="display:flex;margin-bottom:12px;font-size:13px"><span style="color:#909399;width:110px">📄 任务编号</span><span>'+(State.currentTask?.taskCode||'--')+'</span></div>'+
+    '<div style="display:flex;margin-bottom:12px;font-size:13px"><span style="color:#909399;width:110px">⏰ 系统时间</span><span id="liveSysTime">'+(s.sysTime||'--')+'</span></div>'+
+    '<div style="display:flex;margin-bottom:12px;font-size:13px"><span style="color:#909399;width:110px">📍 已行驶距离</span><span style="font-weight:bold">'+distVal.toFixed(2)+' 米</span></div>'+
+    '<div style="display:flex;margin-bottom:12px;font-size:13px"><span style="color:#909399;width:110px">🚛 运行状态</span><span>'+runningHtml+'</span></div>';
+  $('#agvHeartbeat').textContent = s.isRunning ? '🟢 在线' : '⚪ 待机';
+}
+
+async function refreshExecuteFlaws() {
+  if(!State.executingTaskId) return;
+  const res = await api('GET', '/agv/flaw/list', { taskId: State.executingTaskId, pageNum:1, pageSize:999 });
+  if(res.code===200||res.code===0) {
+    State.currentFlaws = (res.rows||[]).filter(f=>!f.deleteFlag);
+    const statusLabel = f => f.confirmed ? '<span class="tag tag-done">已确认</span>' : '<span class="tag tag-pending">待确认</span>';
+    $('#executeFlawTable').innerHTML = State.currentFlaws.length ? State.currentFlaws.map(f => `
+      <tr onclick="openFlawDetail(currentFlawById(${f.id}))" style="cursor:pointer;${f.confirmed?'background:#fef0f0':''}">
+        <td><a>${f.flawName||'--'}</a></td>
+        <td>${f.flawType||'--'}</td>
+        <td>${f.flawDistance||'--'}m</td>
+        <td>${statusLabel(f)}</td>
+      </tr>`).join('') : '<tr><td colspan="4" style="text-align:center;padding:20px;color:#909399">暂无故障</td></tr>';
+  }
+  // Update scale markers
+  var wrapper = $('#executeScaleWrapper');
+  wrapper.querySelectorAll('.scale-marker:not(.agv)').forEach(function(m){m.remove();});
+  var total = parseFloat(State.currentTask?.taskTrip);
+  if(isNaN(total) || total <= 0) total = 500; // BUG 6
+  State.currentFlaws.forEach(f => {
+    const pct = Math.min(((parseFloat(f.flawDistance)||0)/total)*100, 100);
+    let cls = f.confirmed ? 'flaw-confirmed' : 'flaw-suspect';
+    const marker = document.createElement('div');
+    marker.className = 'scale-marker ' + cls;
+    marker.style.left = pct + '%';
+    marker.textContent = '📍';
+    marker.title = f.flawName + ' (' + (f.flawDistance||'?') + 'm)';
+    marker.onclick = () => openFlawDetail(f);
+    wrapper.appendChild(marker);
+  });
+}
+
+async function agvControl(action) {
+  if(!State.executingTaskId) { showToast('没有正在执行的任务', 'warning'); return; } // BUG 10
+  var endpoint = action === 'forward' ? '/agv/movement/forward' : action === 'backward' ? '/agv/movement/backward' : '/agv/movement/stop';
+  var labels = { forward: '前进', backward: '后退', stop: '停止' };
+  var res = await api('POST', endpoint);
+  if(res.code===200||res.code===0) {
+    showToast('AGV ' + (labels[action]||action) + '指令已发送', 'success');
+  } else {
+    showToast('指令发送失败: ' + (res.msg||''), 'error');
+  }
+}
+
+async function finishInspection() {
+  if(!State.executingTaskId) { showToast('没有正在执行的任务', 'warning'); return; } // BUG 9
+  var ok = await showConfirm('确定要完成本次巡检吗？巡检数据将被保存。', '✅');
+  if(!ok) return;
+  showLoading('结束巡检...');
+  var res = await api('POST', '/agv/task/end/' + State.executingTaskId + '?isAbort=false');
+  hideLoading();
+  if(res.code===200||res.code===0) {
+    showToast('巡检已完成', 'success');
+    if(State.pollTimer) { clearInterval(State.pollTimer); State.pollTimer = null; }
+    navigateTo('tasks');
+  } else {
+    showToast('操作失败: '+(res.msg||''), 'error');
+  }
+}
+
+async function abortInspection() {
+  if(!State.executingTaskId) { showToast('没有正在执行的任务', 'warning'); return; } // BUG 9
+  var ok = await showConfirm('确定要终止本次巡检吗？已检测的数据将被保留。', '⏹');
+  if(!ok) return;
+  showLoading('终止巡检...');
+  var res = await api('POST', '/agv/task/end/' + State.executingTaskId + '?isAbort=true');
+  hideLoading();
+  if(res.code===200||res.code===0) {
+    showToast('巡检已终止', 'warning');
+    if(State.pollTimer) { clearInterval(State.pollTimer); State.pollTimer = null; }
+    navigateTo('tasks');
+  } else {
+    showToast('操作失败: '+(res.msg||''), 'error');
+  }
+}
+
+var _uploadInterval = null;
+async function uploadTask(taskId) {
+  openModal('uploadModal');
+  // Clear any previous interval
+  if(_uploadInterval) { clearInterval(_uploadInterval); _uploadInterval = null; }
+  $('#uploadInfo').textContent = '正在获取待上传数据...';
+  $('#uploadProgress').style.display = 'none';
+  var preRes = await api('GET', '/agv/task/preupload/' + taskId);
+  if(preRes.code===200||preRes.code===0) {
+    var info = preRes.data;
+    if(info && info.length) {
+      $('#uploadInfo').innerHTML = '待上传数据: <b>' + info.length + '</b> 项';
+      $('#uploadProgress').style.display = '';
+      $('#uploadStatus').textContent = '准备上传...';
+      var progress = 0;
+      _uploadInterval = setInterval(function() {
+        progress += Math.random() * 30;
+        if(progress >= 100) { progress = 100; clearInterval(_uploadInterval); _uploadInterval = null; $('#uploadStatus').textContent = '✅ 上传完成！'; }
+        var fillEl = $('#uploadBarFill'); if(fillEl) fillEl.style.width = progress + '%';
+      }, 500);
+      // Real upload
+      var uploadRes = await api('POST', '/agv/task/upload/' + taskId);
+      if(_uploadInterval) { clearInterval(_uploadInterval); _uploadInterval = null; }
+      var fillEl = $('#uploadBarFill');
+      if(fillEl) fillEl.style.width = '100%';
+      if(uploadRes.code===200||uploadRes.code===0) {
+        $('#uploadStatus').textContent = '✅ 上传完成！';
+        showToast('数据上传成功', 'success');
+      } else {
+        $('#uploadStatus').textContent = '❌ 上传失败: '+(uploadRes.msg||'');
+      }
+    } else {
+      $('#uploadInfo').textContent = '没有待上传的数据。';
+    }
+  } else {
+    $('#uploadInfo').textContent = '获取上传信息失败: '+(preRes.msg||'');
+  }
+}
+
+// ==================== VIEW 5: SETTINGS ====================
+async function loadSettings() {
+  showLoading('加载配置...');
+  const res = await api('GET', '/agv/config');
+  hideLoading();
+  if(res.code===200||res.code===0) {
+    State.config = res.data || {};
+  } else {
+    State.config = {};
+  }
+  renderSettingsForm();
+}
+
+function renderSettingsForm() {
+  const cfg = State.config || {};
+  // Vehicle settings
+  const form = $('#settingsForm');
+  form.querySelector('[name="host"]').value = cfg.host || '';
+  form.querySelector('[name="drivePort"]').value = cfg.drivePort || '';
+  form.querySelector('[name="analysisPort"]').value = cfg.analysisPort || '';
+  form.querySelector('[name="cloudUrl"]').value = cfg.cloudUrl || '';
+  // Camera settings
+  let camHtml = '';
+  for(let i=1;i<=4;i++) {
+    const labels = ['前方主视角','左侧视角','右侧视角','后方视角'];
+    camHtml += `
+      <div class="camera-block"><h4>📷 摄像头${i} - ${labels[i-1]} <button class="cam-preview-btn" onclick="event.stopPropagation();previewCamera(${i})">▶ 预览</button></h4>
+        <div class="form-group"><label class="form-label">摄像头${i}地址</label><input class="form-input" name="cam${i}" placeholder="rtsp://..."><div class="form-help">支持RTSP、HTTP协议</div></div>
+        <div class="form-row">
+          <div class="form-group"><label class="form-label">账号</label><input class="form-input" name="username${i}" placeholder="请输入"></div>
+          <div class="form-group" style="position:relative"><label class="form-label">密码</label><input class="form-input" type="password" name="password${i}" placeholder="请输入"><button type="button" class="eye-btn" style="position:absolute;right:8px;top:50%;border:none;background:none;cursor:pointer;font-size:14px" onclick="togglePwd(this)">👁️</button></div>
+        </div>
+      </div>`;
+  }
+  $('#cameraSettings').innerHTML = camHtml;
+  // Fill values
+  for(let i=1;i<=4;i++) {
+    form.querySelector('[name="cam'+i+'"]').value = cfg['cam'+i] || '';
+    form.querySelector('[name="username'+i+'"]').value = cfg['username'+i] || '';
+    form.querySelector('[name="password'+i+'"]').value = cfg['password'+i] || '';
+  }
+}
+
+function togglePwd(btn) {
+  const input = btn.parentElement.querySelector('input');
+  if(!input) return;
+  if(input.type === 'password') { input.type = 'text'; btn.textContent = '🙈'; }
+  else { input.type = 'password'; btn.textContent = '👁️'; }
+}
+
+// ==================== CAMERA PREVIEW ====================
+let _previewPlayer = null;
+let _previewVolume = 50;
+let _previewMuted = false;
+
+function previewCamera(camNum) {
+  const form = $('#settingsForm');
+  const camUrl = form.querySelector('[name="cam'+camNum+'"]')?.value?.trim();
+  if(!camUrl) { showToast('请先填写摄像头'+camNum+'的地址', 'warning'); return; }
+
+  const labels = ['前方主视角','左侧视角','右侧视角','后方视角'];
+  $('#camPreviewTitle').textContent = '📹 摄像头'+camNum+' - '+labels[camNum-1];
+
+  // Reset
+  if(_previewPlayer) { try { _previewPlayer.destroy(); } catch(e) {} _previewPlayer = null; }
+  const video = $('#camPreviewVideo');
+  video.style.display = 'none';
+  $('#camPreviewPlaceholder').style.display = '';
+  $('#camPreviewPlaceholder').textContent = '正在连接摄像头...';
+  document.getElementById('camPreviewOverlay').classList.add('show');
+
+  // Try EasyPlayer-pro first (global name has hyphen)
+  var EasyPlayerClass = window['EasyPlayer-pro'];
+  if(EasyPlayerClass) {
+    try {
+      _previewPlayer = new EasyPlayerClass({
+        id: 'camPreviewVideo',
+        url: camUrl,
+        isLive: true,
+        autoplay: true,
+        muted: _previewMuted,
+        lang: 'zh'
+      });
+      video.style.display = '';
+      $('#camPreviewPlaceholder').style.display = 'none';
+      return;
+    } catch(e) { console.warn('EasyPlayer preview failed:', e); }
+  }
+  // Fallback: direct RTSP/HLS via video element
+  video.src = camUrl;
+  video.muted = _previewMuted;
+  video.volume = _previewVolume/100;
+  video.style.display = '';
+  $('#camPreviewPlaceholder').style.display = 'none';
+  video.onerror = function() {
+    $('#camPreviewPlaceholder').style.display = '';
+    $('#camPreviewPlaceholder').textContent = '⚠️ 无法连接摄像头\n\n请检查地址是否正确，以及是否已连接车载WiFi';
+  };
+}
+
+function closeCamPreview() {
+  document.getElementById('camPreviewOverlay').classList.remove('show');
+  const video = $('#camPreviewVideo');
+  video.pause(); video.src = ''; video.style.display = 'none';
+  if(_previewPlayer) { try { _previewPlayer.destroy(); } catch(e) {} _previewPlayer = null; }
+}
+
+function setPreviewVolume(v) {
+  _previewVolume = parseInt(v);
+  const video = $('#camPreviewVideo');
+  video.volume = _previewVolume/100;
+  if(_previewPlayer) { try { _previewPlayer.volume(_previewVolume/100); } catch(e) {} }
+}
+
+function togglePreviewMute() {
+  _previewMuted = !_previewMuted;
+  const video = $('#camPreviewVideo');
+  video.muted = _previewMuted;
+  if(_previewPlayer) { try { _previewPlayer.muted(_previewMuted); } catch(e) {} }
+  document.getElementById('previewMuteBtn').textContent = _previewMuted ? '🔇' : '🔊';
+  document.getElementById('previewVolumeSlider').value = _previewMuted ? 0 : _previewVolume;
+}
+
+// ESC and overlay click to close
+document.addEventListener('keydown', function(e) { if(e.key==='Escape') closeCamPreview(); });
+document.getElementById('camPreviewOverlay')?.addEventListener('click', function(e) {
+  if(e.target === this) closeCamPreview();
+});
+
+function validateSettingsForm() {
+  const form = $('#settingsForm');
+  let valid = true;
+  // IP validation
+  const ipRe = /^(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
+  const host = form.querySelector('[name="host"]');
+  if(host.value && !ipRe.test(host.value)) { host.classList.add('error'); valid = false; }
+  else host.classList.remove('error');
+  // Port validation
+  ['drivePort','analysisPort'].forEach(n=>{
+    const el = form.querySelector('[name="'+n+'"]');
+    const v = parseInt(el.value);
+    if(el.value && (isNaN(v)||v<1||v>65535)) { el.classList.add('error'); valid = false; }
+    else el.classList.remove('error');
+  });
+  // URL validation
+  const urlEl = form.querySelector('[name="cloudUrl"]');
+  if(urlEl.value && !/^https?:\/\/.+/.test(urlEl.value)) { urlEl.classList.add('error'); valid = false; }
+  else urlEl.classList.remove('error');
+  return valid;
+}
+
+async function saveSettings() {
+  if(!validateSettingsForm()) { showToast('请修正表单中的错误', 'warning'); return; }
+  const form = $('#settingsForm');
+  const data = { id: State.config?.id };
+  // Vehicle
+  data.host = form.querySelector('[name="host"]').value.trim();
+  data.drivePort = parseInt(form.querySelector('[name="drivePort"]').value) || null;
+  data.analysisPort = parseInt(form.querySelector('[name="analysisPort"]').value) || null;
+  data.cloudUrl = form.querySelector('[name="cloudUrl"]').value.trim();
+  // Cameras
+  for(let i=1;i<=4;i++) {
+    data['cam'+i] = form.querySelector('[name="cam'+i+'"').value.trim();
+    data['username'+i] = form.querySelector('[name="username'+i+'"').value.trim();
+    data['password'+i] = form.querySelector('[name="password'+i+'"').value.trim();
+  }
+  showLoading('保存设置...');
+  const res = await api('PUT', '/agv/config', data);
+  hideLoading();
+  if(res.code===200||res.code===0) {
+    State.config = data;
+    showToast('设置已保存成功！', 'success');
+    const ok = await showConfirm('设置已保存。是否返回系统初始化页面重新检测连接？', '🔄');
+    if(ok) navigateTo('init');
+  } else {
+    showToast('保存失败: '+(res.msg||''), 'error');
+  }
+}
+
+// ==================== INIT ====================
+// Auto-run checks on page load
+window.addEventListener('DOMContentLoaded', function() {
+  // Diagnostic: check EasyPlayer loading
+  var EP = window['EasyPlayer-pro'];
+  if(EP) {
+    console.log('EasyPlayer-pro loaded successfully. Version: ' + (EP.version || 'unknown'));
+  } else {
+    console.warn('EasyPlayer-pro NOT loaded! Check script path. window keys with Easy:',
+      Object.keys(window).filter(function(k){ return k.toLowerCase().indexOf('easy')>=0; }));
+  }
+  runChecks();
+  // Close modals on overlay click
+  $$('.modal-overlay').forEach(function(ov){
+    ov.addEventListener('click', function(e) { if(e.target===this) this.classList.remove('show'); });
+  });
+  // BUG 17: broken image fallback
+  var detailImg = document.getElementById('detailImage');
+  if(detailImg) detailImg.onerror = function() { this.style.display='none'; var p=document.querySelector('#detailImageArea .placeholder'); if(p)p.style.display=''; };
+  var flawDetailImg = document.getElementById('flawDetailImg');
+  if(flawDetailImg) flawDetailImg.onerror = function() { this.src=''; this.style.display='none'; };
+});
+</script>
+</body>
+</html>
