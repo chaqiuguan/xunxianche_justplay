@@ -46,8 +46,8 @@ h1{text-align:center;font-size:18px;padding:8px 0;color:#fff}
 <!-- Mode selector -->
 <div class="mode-bar">
   <span style="font-size:13px;color:#909399">延迟模式:</span>
-  <button class="mode-btn" id="btnFlv" onclick="switchMode('flv')">🚀 低延迟 (FLV)</button>
-  <button class="mode-btn active" id="btnHls" onclick="switchMode('hls')">🐢 高延迟 (HLS)</button>
+  <button class="mode-btn active" id="btnFlv" onclick="switchMode('flv')">🚀 低延迟 (FLV)</button>
+  <button class="mode-btn" id="btnHls" onclick="switchMode('hls')">🐢 高延迟 (HLS)</button>
   <button class="toggle-btn on" id="speedToggle" onclick="toggleSpeed()" style="padding:5px 14px;border:1px solid #409eff;border-radius:14px;background:#409eff;color:#fff;cursor:pointer;font-size:12px;margin-left:12px">📊 实时测速: 开</button>
 </div>
 <div class="mode-bar" id="camToggles">
@@ -55,7 +55,7 @@ h1{text-align:center;font-size:18px;padding:8px 0;color:#fff}
 </div>
 
 <!-- HLS annotation -->
-<div class="annotation show" id="noteHls">
+<div class="annotation" id="noteHls">
   <h3>🐢 高延迟模式 — HLS</h3>
   <table>
     <tr><td>原理</td><td>ffmpeg 将 RTSP 流切成 2 秒一段的 .ts 文件 → Python HTTP 服务 → 浏览器 hls.js 播放</td></tr>
@@ -67,7 +67,7 @@ h1{text-align:center;font-size:18px;padding:8px 0;color:#fff}
 </div>
 
 <!-- FLV annotation -->
-<div class="annotation" id="noteFlv">
+<div class="annotation show" id="noteFlv">
   <h3>🚀 低延迟模式 — HTTP-FLV</h3>
   <table>
     <tr><td>原理</td><td>ffmpeg 持续输出 FLV 流 → 浏览器 mpegts.js 通过 MSE 实时解码到 &lt;video&gt;</td></tr>
@@ -84,7 +84,7 @@ h1{text-align:center;font-size:18px;padding:8px 0;color:#fff}
 <div id="logWrap" style="max-width:100%;background:#0f3460;border-radius:6px;overflow:hidden;margin-top:8px">
   <div style="padding:6px 12px;background:rgba(0,0,0,.2);font-size:12px;display:flex;justify-content:space-between">
     <b>📋 日志</b>
-    <span style="font-size:10px;color:#666" id="logModeLabel">当前: 高延迟 HLS</span>
+    <span style="font-size:10px;color:#666" id="logModeLabel">当前: 低延迟 FLV</span>
   </div>
   <div id="log" style="height:160px;overflow-y:auto;padding:8px 12px;font-size:10px;line-height:1.6;font-family:Consolas,monospace;white-space:pre-wrap;word-break:break-all;color:#ccc"></div>
 </div>
@@ -97,7 +97,9 @@ var cameras = [
   {name:'摄像头4', hls:'/hls_output/cam4/index.m3u8', flv:'/flv/cam4'},
 ];
 
-var currentMode = 'hls';
+// Check URL param for default mode: ?mode=flv or ?mode=hls
+var urlParams = new URLSearchParams(window.location.search);
+var currentMode = urlParams.get('mode') === 'hls' ? 'hls' : 'flv';
 var players = {};
 var speedEnabled = true;
 var speedHistory = {};
@@ -393,6 +395,14 @@ function stopCamera(i) {
 
 // Start all enabled cameras on load
 window.addEventListener('DOMContentLoaded', function() {
+  // Set initial mode button state (FLV is now default)
+  if (currentMode === 'hls') {
+    document.getElementById('btnHls').className = 'mode-btn active';
+    document.getElementById('btnFlv').className = 'mode-btn';
+    document.getElementById('noteHls').className = 'annotation show';
+    document.getElementById('noteFlv').className = 'annotation';
+    document.getElementById('logModeLabel').textContent = '当前: 低延迟 FLV';
+  }
   cameras.forEach(function(c, i) {
     if (camEnabled[i]) { startCamera(i); }
     else {

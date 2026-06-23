@@ -82,7 +82,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        path = self.path.split('?')[0]  # strip query string
+        path = self.path.split('?')[0]
         print(f'[HTTP] GET {path}')
 
         # === FLV streaming ===
@@ -107,6 +107,11 @@ class Handler(BaseHTTPRequestHandler):
 
         # === Static file serving ===
         file_path = os.path.join(ROOT_DIR, path.lstrip('/'))
+        # Also check current_control folder as fallback
+        if not os.path.isfile(file_path):
+            alt = os.path.join(os.path.dirname(ROOT_DIR), 'current_control', path.lstrip('/'))
+            if os.path.isfile(alt):
+                file_path = alt
         if os.path.isfile(file_path):
             content_types = {
                 '.html': 'text/html', '.js': 'application/javascript',
@@ -144,6 +149,25 @@ if __name__ == '__main__':
 
     for i, (name, url) in enumerate(CAMERAS):
         threading.Thread(target=start_hls, args=(name, url, i+1), daemon=True).start()
+
+    # Background cleaner: remove .ts files older than 60s, runs every 30s
+    def clean_old_segments():
+        while True:
+            time.sleep(30)
+            try:
+                now = time.time()
+                for cam in range(1, len(CAMERAS) + 1):
+                    cam_dir = os.path.join(HLS_DIR, f'cam{cam}')
+                    if not os.path.isdir(cam_dir):
+                        continue
+                    for f in os.listdir(cam_dir):
+                        if f.endswith('.ts'):
+                            fp = os.path.join(cam_dir, f)
+                            if now - os.path.getmtime(fp) > 60:
+                                os.remove(fp)
+            except Exception as e:
+                print(f'[Cleaner] error: {e}')
+    threading.Thread(target=clean_old_segments, daemon=True).start()
 
     print('Waiting for HLS init...')
     time.sleep(4)
