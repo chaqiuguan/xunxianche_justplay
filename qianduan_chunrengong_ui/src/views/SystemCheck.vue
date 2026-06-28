@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 
 const router = useRouter()
-const API = '/prod-api'
+const API = 'http://192.168.2.57/prod-api'
 
 const checks = reactive([
   {

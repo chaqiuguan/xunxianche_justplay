@@ -6,8 +6,8 @@ import { ArrowLeft } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
-const API = '/prod-api'
-const IMG_BASE = '/prod-api/file'
+const API = 'http://192.168.2.57/prod-api'
+const IMG_BASE = 'http://192.168.2.57/prod-api/file'
 
 const taskId = ref(route.query.id || '')
 const taskCode = ref(route.query.taskCode || '')

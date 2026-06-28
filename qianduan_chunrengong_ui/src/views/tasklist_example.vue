@@ -6,7 +6,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 const router = useRouter()
 import { Search, Refresh, Upload, Setting } from '@element-plus/icons-vue'
 
-const API = '/prod-api'
+const API = 'http://192.168.2.57/prod-api'
 
 // ===== 搜索表单 =====
 const searchForm = reactive({

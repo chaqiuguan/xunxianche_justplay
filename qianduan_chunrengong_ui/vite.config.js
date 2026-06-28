@@ -15,28 +15,6 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
-  server: {
-    proxy: {
-      '/prod-api': {
-        target: 'http://192.168.2.57',
-        changeOrigin: true,
-      },
-      '/easy-api': {
-        target: 'http://192.168.2.57',
-        changeOrigin: true,
-      },
-      '/flv': {
-        target: 'http://127.0.0.1:8088',
-        changeOrigin: true,
-      },
-      '/webrtc-api': {
-        target: 'http://192.168.2.57',
-        changeOrigin: true,
-      },
-      '/easyplayer': {
-        target: 'http://192.168.2.57',
-        changeOrigin: true,
-      },
-    },
-  },
+  // ★ 直连模式：所有 API 请求在代码中直接写 http://192.168.2.57
+  // 不再需要 dev proxy。保留 server 块以备将来需要代理。
 })

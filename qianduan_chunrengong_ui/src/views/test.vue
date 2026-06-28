@@ -28,7 +28,7 @@ onMounted(async () => {
   if (!window.EasyPlayerPro && !window['EasyPlayer-pro']) {
     try {
       console.log('加载 EasyPlayer...')
-      await loadScript('/easyplayer/EasyPlayer-lib.js')
+      await loadScript('http://192.168.2.57/easyplayer/EasyPlayer-lib.js')
       console.log('EasyPlayer 加载完成')
     } catch (e) {
       console.error('EasyPlayer 加载失败:', e)
@@ -48,7 +48,7 @@ onMounted(async () => {
   // 2. 按原版方式初始化：构造时不传 url，之后 .play(url)
   cameras.forEach((cam, i) => {
     const t0 = Date.now()
-    const url = window.location.origin + '/webrtc-api/live/' + cam.id + '_01.flv'
+    const url = 'http://192.168.2.57/webrtc-api/live/' + cam.id + '_01.flv'
     cam.foot = cam.id + '_01.flv'
 
     try {

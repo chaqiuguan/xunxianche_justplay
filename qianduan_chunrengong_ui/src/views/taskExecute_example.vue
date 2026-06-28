@@ -16,8 +16,8 @@
           <div class="video-stream">
             <!-- FLV (mpegts) 模式 -->
             <video v-if="playerType === 'flv'" ref="videoRef" autoplay muted playsinline style="width:100%;height:100%;object-fit:contain"></video>
-            <!-- EasyPlayer 模式 -->
-            <div v-else ref="easyPlayerContainer" style="width:100%;height:100%"></div>
+            <!-- EasyPlayer 模式（key 确保切摄像头时重建 DOM） -->
+            <div v-else ref="easyPlayerContainer" :key="'ep-' + currentCamera" style="width:100%;height:100%"></div>
             <div class="video-overlay" v-if="videoOverlay !== '--'">{{ videoOverlay }}</div>
           </div>
 
@@ -195,12 +195,12 @@ const playerType = ref('flv')      // ★ 'flv' | 'easyplayer'
 let flvPlayer = null              // 替代 playerInstance
 const videoOverlay = ref('--')    // 新增：显示速率/分辨率
 
-// ---- 摄像头 FLV 地址 ----
+// ---- 摄像头 FLV 地址（直连巡检车） ----
 const camUrls = {
-  '1': '/flv/cam1',
-  '2': '/flv/cam2',
-  '3': '/flv/cam3',
-  '4': '/flv/cam4',
+  '1': 'http://192.168.2.57/webrtc-api/live/PbemokuspQHD5_01.flv',
+  '2': 'http://192.168.2.57/webrtc-api/live/Psh0GyTpkiSdC_01.flv',
+  '3': 'http://192.168.2.57/webrtc-api/live/Pk8FmQHNeOqSx_01.flv',
+  '4': 'http://192.168.2.57/webrtc-api/live/PaKHUtvPpcrZq_01.flv',
 }
 
 // ---- EasyPlayer 相关 ----
@@ -265,10 +265,13 @@ async function connectEasyPlayer(camNum) {
   // 1. 销毁旧实例
   if (easyPlayerInstance) { try { easyPlayerInstance.destroy() } catch(e) {} easyPlayerInstance = null }
 
+  // 2. 等 Vue DOM 更新（:key 切换会重建容器）
+  await nextTick()
+
   const container = easyPlayerContainer.value
   if (!container) { console.error('EasyPlayer 容器未找到'); return }
 
-  // 2. 确保 EasyPlayer 全局可用
+  // 3. 确保 EasyPlayer 全局可用
   const EasyPlayer = window.EasyPlayerPro || window['EasyPlayer-pro']
   if (!EasyPlayer) {
     console.error('EasyPlayer 未加载')
@@ -276,7 +279,7 @@ async function connectEasyPlayer(camNum) {
     return
   }
 
-  // 3. 构造播放器（原版方式：不传 url）
+  // 4. 构造播放器（原版方式：不传 url）
   const player = new EasyPlayer(container, {
     isLive: true,
     bufferTime: 0.2,
@@ -287,9 +290,9 @@ async function connectEasyPlayer(camNum) {
   })
   easyPlayerInstance = player
 
-  // 4. 播放
+  // 5. 播放
   const deviceId = easyCamIds[camNum]
-  const url = window.location.origin + '/webrtc-api/live/' + deviceId + '_01.flv'
+  const url = 'http://192.168.2.57/webrtc-api/live/' + deviceId + '_01.flv'
 
   try {
     await player.play(url)
@@ -393,7 +396,7 @@ function cleanupAndLeave() {
   router.push('/taskList')
 }
 
-const API = '/prod-api'
+const API = 'http://192.168.2.57/prod-api'
 let stopDebounce = 0
 function onMoveChange(action) {
   // 方向反转防抖：停止后等 300ms 才能切方向
@@ -434,7 +437,7 @@ let timer = null
 
 async function fetchTaskData() {
   try {
-    const res = await fetch('/prod-api/agv/movement/heartbeat')
+    const res = await fetch(API + '/agv/movement/heartbeat')
     const data = await res.json()
     if (data.code === 200 || data.code === 0) {
       const s = data.data || {}
@@ -450,7 +453,7 @@ async function fetchTaskData() {
 async function fetchFlawStats() {
   if (!taskId.value) return
   try {
-    const res = await fetch('/prod-api/agv/flaw/list?taskId=' + taskId.value + '&pageNum=1&pageSize=999')
+    const res = await fetch(API + '/agv/flaw/list?taskId=' + taskId.value + '&pageNum=1&pageSize=999')
     const data = await res.json()
     if (data.code === 200 || data.code === 0) {
       // 服务端不支持 taskId 过滤，客户端自行过滤
