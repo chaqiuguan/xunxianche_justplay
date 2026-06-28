@@ -29,6 +29,14 @@ export default defineConfig({
         target: 'http://127.0.0.1:8088',
         changeOrigin: true,
       },
+      '/webrtc-api': {
+        target: 'http://192.168.2.57',
+        changeOrigin: true,
+      },
+      '/easyplayer': {
+        target: 'http://192.168.2.57',
+        changeOrigin: true,
+      },
     },
   },
 })

@@ -53,13 +53,27 @@
       "Bash(ls -la \"d:\\\\\\\\NEUwork\\\\\\\\x巡线车玩的\\\\\\\\手持终端任务附件 1.2\\\\\\\\\")",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"http://127.0.0.1:8088/flv/cam1\")",
       "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "WebFetch(domain:192.168.2.57)",
+      "Bash(curl -s \"http://192.168.2.57/taskDetail?id=3547\")",
+      "Bash(curl -s \"http://192.168.2.57/static/js/chunk-497211a5.b58d1a11.js\")",
+      "Bash(curl -s \"http://192.168.2.57/static/js/chunk-3e4a4e2f.7264b94a.js\")",
+      "Bash(grep -oP 'RTC_BASE[^;]*|\\\\/live\\\\/[^\"'\"'\"' ]*|streamUrl[^;]*|connectVideo[^}]*\\\\}|new.*Player[^;]*')",
+      "Bash(curl -sI \"http://192.168.2.57/easyplayer/EasyPlayer-pro.js\")",
+      "Bash(curl -sI \"http://192.168.2.57/static/js/ZLMRTCClient.js\")",
+      "Bash(curl -s \"http://192.168.2.57/static/js/chunk-libs.db04d3dd.js\")",
+      "Bash(curl -s \"http://192.168.2.57/static/js/chunk-elementUI.99f1596a.js\")",
+      "Bash(curl -s \"http://192.168.2.57/easy-api/devices?page=1&size=999\" -H \"Authorization: Basic YWRtaW4xMjM6QWRtaW5AMTIz\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); [print\\(f['id'], f.get\\('name','?'\\)\\) for f in \\(d.get\\('data',{}\\).get\\('list',[]\\) or d.get\\('items',[]\\) or []\\)]\")"
     ],
     "additionalDirectories": [
       "D:\\NEUwork\\x_xunxianche_justplay\\app\\src\\main",
       "D:\\NEUwork\\x_xunxianche_justplay\\gradle",
       "D:\\NEUwork\\x_xunxianche_justplay\\app",
-      "D:\\NEUwork\\xunxianche_harmony\\xunxianche_harmony\\entry\\src\\main"
+      "D:\\NEUwork\\xunxianche_harmony\\xunxianche_harmony\\entry\\src\\main",
+      "D:\\NEUwork\\xunxianche_harmony\\xunxianche_harmony\\entry\\src\\main\\ets\\pages",
+      "D:\\NEUwork\\xunxianche_harmony\\xunxianche_harmony\\entry\\src\\main\\ets\\entryability",
+      "D:\\NEUwork\\xunxianche_harmony\\xunxianche_harmony\\entry\\src\\main\\resources\\base\\profile"
     ]
   }
 }

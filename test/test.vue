@@ -1,6 +1,7 @@
 <script setup>
 import { ref, reactive, onMounted, onUnmounted, nextTick } from 'vue'
 
+// ── 摄像头列表 ────────────────────────────
 const cameras = reactive([
   { id: 'PbemokuspQHD5', name: '摄像头1', ok: false, err: false, tag: '等待', tagColor: '#909399', started: false, foot: '--' },
   { id: 'Psh0GyTpkiSdC', name: '摄像头2', ok: false, err: false, tag: '等待', tagColor: '#909399', started: false, foot: '--' },
@@ -11,6 +12,7 @@ const cameras = reactive([
 const players = ref([])
 const timers = ref([])
 
+// ── 动态加载 EasyPlayer ────────────────────
 function loadScript(src) {
   return new Promise((resolve, reject) => {
     const s = document.createElement('script')
@@ -24,37 +26,39 @@ function loadScript(src) {
 onMounted(async () => {
   await nextTick()
 
-  // 1. 加载 EasyPlayer（通过 vite proxy → 192.168.2.57）
-  if (!window.EasyPlayerPro && !window['EasyPlayer-pro']) {
-    try {
+  // 1. 加载 EasyPlayer 库（从巡检车服务器，和原版一致）
+  const BASE = 'http://192.168.2.57'
+  try {
+    if (!window.EasyPlayerPro && !window['EasyPlayer-pro']) {
       console.log('加载 EasyPlayer...')
-      await loadScript('/easyplayer/EasyPlayer-lib.js')
-      console.log('EasyPlayer 加载完成')
-    } catch (e) {
-      console.error('EasyPlayer 加载失败:', e)
-      cameras.forEach(c => { c.tag = '库加载失败'; c.tagColor = '#f56c6c'; c.err = true })
-      return
+      await loadScript(BASE + '/easyplayer/EasyPlayer-lib.js')
     }
+  } catch (e) {
+    console.error('EasyPlayer 加载失败:', e)
+    cameras.forEach(c => { c.tag = '库加载失败'; c.tagColor = '#f56c6c'; c.err = true })
+    return
   }
 
+  // 原版同时用了 EasyPlayerPro 和 EasyPlayer-pro，兼容两者
   const EasyPlayer = window.EasyPlayerPro || window['EasyPlayer-pro']
   if (!EasyPlayer) {
-    console.error('EasyPlayer 未找到! 全局 key:', Object.keys(window).filter(k => k.toLowerCase().includes('easy')))
+    console.error('EasyPlayer 全局变量未找到! 可用:', Object.keys(window).filter(k => k.toLowerCase().includes('easy')))
     cameras.forEach(c => { c.tag = '未找到'; c.tagColor = '#f56c6c'; c.err = true })
     return
   }
   console.log('EasyPlayer OK, version:', EasyPlayer.version || '?')
 
-  // 2. 按原版方式初始化：构造时不传 url，之后 .play(url)
+  // 2. 按原版方式初始化每个摄像头
   cameras.forEach((cam, i) => {
     const t0 = Date.now()
-    const url = window.location.origin + '/webrtc-api/live/' + cam.id + '_01.flv'
+    const url = BASE + '/webrtc-api/live/' + cam.id + '_01.flv'
     cam.foot = cam.id + '_01.flv'
 
     try {
       const container = document.getElementById('ep' + i)
       if (!container) { console.error('容器未找到: ep' + i); return }
 
+      // ★ 原版方式：构造时不传 url，之后调 .play(url)
       const player = new EasyPlayer(container, {
         isLive: true,
         bufferTime: 0.2,
@@ -64,17 +68,18 @@ onMounted(async () => {
         hasAudio: true,
       })
 
+      // 播放
       player.play(url).then(() => {
-        console.log('player ' + i + ' play() OK')
+        console.log('player ' + i + ' play() resolved')
       }).catch(err => {
         console.error('player ' + i + ' play() 失败:', err)
         cam.err = true
-        cam.tag = '播放失败'; cam.tagColor = '#f85149'
+        cam.tag = '失败'; cam.tagColor = '#f85149'
       })
 
       players.value[i] = player
 
-      // 轮询检测视频渲染
+      // 轮询检测视频是否真正开始渲染
       let count = 0
       timers.value[i] = setInterval(() => {
         count++
@@ -108,7 +113,7 @@ onUnmounted(() => {
 
 <template>
   <div class="page">
-    <h1>视频流测试 — 模仿原版 EasyPlayer 6.2.0 / HTTP-FLV</h1>
+    <h1>WebRTC 视频测试 (模仿原版 EasyPlayer 6.2.0 / HTTP-FLV)</h1>
     <div class="grid">
       <div v-for="(cam, i) in cameras" :key="i" :class="['panel', { ok: cam.ok, err: cam.err }]">
         <div class="ph">
