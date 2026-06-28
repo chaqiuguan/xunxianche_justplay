@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>任务巡视 — 地铁隧道巡线车智能巡检</title>
+<script src="easyplayer/crypto-js.js"></script>
+<script src="easyplayer/EasyPlayer-pro.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#f0f2f5;color:#303133;font-family:'Microsoft YaHei','PingFang SC',Arial,sans-serif;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+
+/* === Top Bar === */
+.topbar{height:52px;background:#fff;border-bottom:1px solid #e4e7ed;display:flex;align-items:center;padding:0 20px;justify-content:space-between;flex-shrink:0;box-shadow:0 1px 4px rgba(0,0,0,.04)}
+.topbar .t-left{display:flex;align-items:center;gap:12px}
+.topbar .title{font-size:16px;font-weight:bold;color:#303133}
+.topbar .task-tag{padding:2px 10px;border-radius:10px;font-size:11px;font-weight:500}
+.topbar .task-tag.running{background:#ecf5ff;color:#409eff}
+.topbar .t-right{display:flex;align-items:center;gap:16px;font-size:13px;color:#909399}
+
+/* === Main Split === */
+.main-split{flex:1;display:flex;overflow:hidden}
+
+/* === Video Area === */
+.video-area{flex:1;background:#000;position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.video-area .player-wrap{width:100%;height:100%;position:absolute;top:0;left:0}
+.video-area .player-wrap video,.video-area .player-wrap canvas{width:100%!important;height:100%!important;object-fit:contain}
+.video-area .placeholder{text-align:center;color:#909399;z-index:2;pointer-events:none}
+.video-area .placeholder .icon{font-size:64px;display:block;margin-bottom:12px}
+.cam-label{position:absolute;bottom:12px;left:12px;background:rgba(0,0,0,.6);color:#fff;padding:5px 14px;border-radius:4px;font-size:13px;z-index:10;pointer-events:none}
+.cam-switcher{position:absolute;top:12px;right:12px;display:flex;gap:4px;background:rgba(0,0,0,.45);padding:5px 8px;border-radius:6px;z-index:10}
+.cam-switcher button{padding:6px 14px;border:1px solid rgba(255,255,255,.3);border-radius:4px;background:rgba(255,255,255,.1);color:#ddd;cursor:pointer;font-size:13px;transition:all .2s}
+.cam-switcher button:hover{background:rgba(255,255,255,.2);color:#fff}
+.cam-switcher button.active{background:#409eff;border-color:#409eff;color:#fff}
+
+/* === Sidebar === */
+.sidebar{width:350px;background:#fff;border-left:1px solid #e4e7ed;overflow-y:auto;flex-shrink:0;display:flex;flex-direction:column;gap:10px;padding:12px}
+.card{background:#fff;border:1px solid #e4e7ed;border-radius:6px;overflow:hidden}
+.card-header{padding:10px 14px;background:#fafafa;border-bottom:1px solid #ebeef5;font-size:13px;font-weight:600;color:#409eff;display:flex;align-items:center;gap:6px}
+.card-body{padding:12px 14px}
+.info-row{display:flex;justify-content:space-between;padding:4px 0;font-size:13px}
+.info-row .lbl{color:#909399}.info-row .val{color:#303133;font-weight:500}
+.info-row .val.ok{color:#67c23a}.info-row .val.warn{color:#e6a23c}.info-row .val.err{color:#f56c6c}
+
+/* Buttons */
+.btn-row{display:flex;gap:8px;margin-top:6px}
+.btn{padding:9px 0;border:1px solid #dcdfe6;border-radius:4px;background:#fff;color:#606266;cursor:pointer;font-size:13px;font-weight:500;flex:1;text-align:center;transition:all .15s}
+.btn:hover{opacity:.85}
+.btn:active{transform:scale(.97)}
+.btn.forward{background:#67c23a;border-color:#67c23a;color:#fff}
+.btn.stop{background:#f56c6c;border-color:#f56c6c;color:#fff}
+.btn.backward{background:#e6a23c;border-color:#e6a23c;color:#fff}
+.btn.success{background:#409eff;border-color:#409eff;color:#fff}
+.btn.danger{color:#f56c6c;border-color:#f56c6c;background:#fef0f0}
+
+/* Status tags */
+.tag{display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;font-weight:500}
+.tag.confirmed{background:#fef0f0;color:#f56c6c}
+.tag.pending{background:#fdf6ec;color:#e6a23c}
+
+/* === Progress Bar === */
+.progress-bar{height:52px;background:#fff;border-top:1px solid #e4e7ed;flex-shrink:0;padding:0 24px;display:flex;align-items:center}
+.progress-bar .track{flex:1;height:8px;background:#e4e7ed;border-radius:4px;position:relative;overflow:visible}
+.progress-bar .fill{height:100%;background:#409eff;border-radius:4px;transition:width .5s ease}
+.progress-bar .marker{position:absolute;top:-8px;width:10px;height:10px;border-radius:50%;background:#f56c6c;transform:translateX(-50%);cursor:pointer;z-index:2}
+.progress-bar .marker.agv{width:14px;height:14px;top:-10px;background:#67c23a;box-shadow:0 0 6px rgba(103,194,58,.4);z-index:3;transition:left .5s ease}
+
+/* === Log === */
+#logWrap{height:100px;flex-shrink:0;background:#fff;border-top:1px solid #e4e7ed;display:flex;flex-direction:column}
+#logWrap .log-hdr{padding:4px 14px;background:#fafafa;border-bottom:1px solid #ebeef5;font-size:11px;color:#909399;display:flex;justify-content:space-between}
+#logWrap .log-body{flex:1;overflow-y:auto;padding:6px 14px;font-size:11px;line-height:1.6;font-family:Consolas,monospace;color:#606266;background:#fafafa}
+
+/* URL input bar */
+.url-bar{background:#fff;border-bottom:1px solid #e4e7ed;flex-shrink:0;display:flex;gap:10px;justify-content:center;align-items:center;padding:8px 16px}
+.url-bar label{font-size:13px;color:#606266}
+.url-bar input{padding:6px 10px;border:1px solid #dcdfe6;border-radius:4px;background:#fff;color:#303133;font-size:13px;width:120px;outline:none}
+.url-bar input:focus{border-color:#409eff}
+.url-bar input::placeholder{color:#c0c4cc}
+.url-bar .btn.go{background:#409eff;border-color:#409eff;color:#fff;padding:6px 18px;border-radius:4px;cursor:pointer;font-size:13px;border:none}
+.url-bar .btn.go:hover{background:#66b1ff}
+</style>
+</head>
+<body>
+
+<!-- URL input (for entering task ID) -->
+<div class="url-bar">
+  <label>任务ID:</label>
+  <input type="text" id="taskIdInput" placeholder="如 3542" onkeydown="if(event.key==='Enter')loadTask()">
+  <button class="btn go" onclick="loadTask()">进入巡视</button>
+</div>
+
+<!-- Top bar -->
+<div class="topbar">
+  <div class="t-left">
+    <span class="title" id="tbTaskName">--</span>
+    <span class="task-tag running" id="tbStatus">--</span>
+  </div>
+  <div class="t-right">
+    <span id="tbTime">--</span>
+    <span id="tbHb" style="color:#f85149">● 断连</span>
+  </div>
+</div>
+
+<!-- Main: video + sidebar -->
+<div class="main-split">
+  <div class="video-area" id="videoArea">
+    <div class="player-wrap" id="playerContainer"></div>
+    <div class="placeholder" id="placeholder">
+      <span class="icon">🎥</span>输入任务ID并点击"进入巡视"
+    </div>
+    <div class="cam-label" id="camLabel">摄像头1 — 前方视角</div>
+    <div class="cam-switcher" id="camSwitcher">
+      <button class="active" data-cam="0">前</button>
+      <button data-cam="1">左</button>
+      <button data-cam="2">右</button>
+      <button data-cam="3">后</button>
+    </div>
+  </div>
+
+  <div class="sidebar">
+    <!-- Task info -->
+    <div class="card">
+      <div class="card-header">📋 任务信息</div>
+      <div class="card-body" id="taskInfo"></div>
+    </div>
+
+    <!-- AGV status -->
+    <div class="card">
+      <div class="card-header">🚛 AGV 状态</div>
+      <div class="card-body" id="agvStatus"></div>
+    </div>
+
+    <!-- Control -->
+    <div class="card">
+      <div class="card-header">🎮 操控</div>
+      <div class="card-body">
+        <div class="btn-row">
+          <button class="btn forward" id="btnFwd" onmousedown="ctrlDown('forward')" onmouseup="ctrlUp()" onmouseleave="ctrlUp()" ontouchstart="ctrlDown('forward')" ontouchend="ctrlUp()" ontouchcancel="ctrlUp()">▶ 前进</button>
+          <button class="btn stop" onclick="ctrlCmd('stop')">⏹ 停止</button>
+        </div>
+        <div class="btn-row">
+          <button class="btn backward" id="btnBwd" onmousedown="ctrlDown('backward')" onmouseup="ctrlUp()" onmouseleave="ctrlUp()" ontouchstart="ctrlDown('backward')" ontouchend="ctrlUp()" ontouchcancel="ctrlUp()">◀ 后退</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Flaws -->
+    <div class="card">
+      <div class="card-header">⚠️ 实时故障 <span id="flawBadge" style="display:none;margin-left:auto;background:#f85149;color:#fff;border-radius:10px;padding:0 8px;font-size:10px">NEW</span></div>
+      <div class="card-body" style="padding:6px 8px">
+        <div id="flawList" style="font-size:11px;color:#484f58">等待任务加载...</div>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="card">
+      <div class="card-body">
+        <div class="btn-row">
+          <button class="btn success" onclick="endTask(false)">✅ 完成巡检</button>
+          <button class="btn danger" onclick="endTask(true)">⏹ 中止巡检</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Progress -->
+<div class="progress-bar">
+  <div style="display:flex;align-items:center;width:100%;flex-direction:column;position:relative">
+    <div class="track">
+      <div class="fill" id="progressFill" style="width:0%"></div>
+      <div id="markersLayer"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;width:100%;font-size:10px;color:#484f58;margin-top:4px">
+      <span>0m</span><span id="distEnd">--m</span>
+    </div>
+  </div>
+</div>
+
+<!-- Log -->
+<div id="logWrap">
+  <div class="log-hdr"><span>📋 日志</span><span id="logCount">0</span></div>
+  <div class="log-body" id="log"></div>
+</div>
+
+<script>
+var API = 'http://192.168.2.57/prod-api';
+var EASY = 'http://192.168.2.57/easy-api';
+var AUTH = 'Basic YWRtaW4xMjM6QWRtaW5AMTIz';
+var taskId = null, task = null, flaws = [];
+var deviceIds = [], activeCam = 0;
+var EP = null, player = null;
+var pollTimer = null, ctrlPressed = null;
+var logN = 0, agvData = {};
+
+// === Log ===
+function log(msg, cls) {
+  var c = cls === 'ok' ? '#3fb950' : cls === 'err' ? '#f85149' : cls === 'info' ? '#58a6ff' : '#8b949e';
+  var d = document.getElementById('log');
+  var t = new Date(), ts = ('0'+t.getHours()).slice(-2)+':'+('0'+t.getMinutes()).slice(-2)+':'+('0'+t.getSeconds()).slice(-2);
+  d.innerHTML += '<div><span style="color:#484f58">'+ts+'</span> <span style="color:'+c+'">'+msg+'</span></div>';
+  logN++; document.getElementById('logCount').textContent = logN;
+  d.scrollTop = d.scrollHeight;
+}
+
+// === Task ===
+function getParam(name) {
+  return new URLSearchParams(window.location.search).get(name);
+}
+
+async function loadTask(overrideId) {
+  var id = overrideId || document.getElementById('taskIdInput').value.trim();
+  if (!id) { log('请输入任务ID', 'err'); return; }
+
+  taskId = parseInt(id);
+  if (isNaN(taskId)) { log('无效的任务ID', 'err'); return; }
+
+  // Update URL
+  if (window.history && window.history.replaceState) {
+    window.history.replaceState({}, '', '?id=' + taskId);
+  }
+
+  log('加载任务 id='+taskId+'...', 'info');
+  document.getElementById('placeholder').innerHTML = '<span class="icon">🎥</span>加载中...';
+
+  try {
+    var r = await fetch(API + '/agv/task/' + taskId);
+    var d = await r.json();
+    if (d.code !== 200 && d.code !== 0) throw new Error(d.msg || '加载失败');
+    task = d.data;
+    renderTaskInfo();
+    document.getElementById('tbTaskName').textContent = task.taskName || task.taskCode || '--';
+    document.getElementById('tbStatus').textContent = task.taskStatus || '--';
+    document.getElementById('distEnd').textContent = (task.taskTrip || '--') + 'm';
+    document.getElementById('taskIdInput').value = taskId;
+    log('任务: ' + (task.taskName||'--') + ' | 状态: ' + (task.taskStatus||'--'), 'ok');
+  } catch(e) {
+    log('加载任务失败: ' + e.message, 'err');
+    return;
+  }
+
+  // Load devices & start video
+  loadDevices();
+  // Refresh flaws
+  refreshFlaws();
+  // Start polling
+  startPolling();
+}
+
+function renderTaskInfo() {
+  var t = task || {};
+  document.getElementById('taskInfo').innerHTML =
+    '<div class="info-row"><span class="lbl">编号</span><span class="val">'+(t.taskCode||'--')+'</span></div>'+
+    '<div class="info-row"><span class="lbl">名称</span><span class="val">'+(t.taskName||'--')+'</span></div>'+
+    '<div class="info-row"><span class="lbl">执行人</span><span class="val">'+(t.executor||'--')+'</span></div>'+
+    '<div class="info-row"><span class="lbl">距离</span><span class="val">'+(t.taskTrip||'--')+' m</span></div>'+
+    '<div class="info-row"><span class="lbl">轮次</span><span class="val">第 '+(t.round||1)+' 轮</span></div>'+
+    '<div class="info-row"><span class="lbl">状态</span><span class="val '+(t.taskStatus==='巡视中'?'ok':'warn')+'">'+(t.taskStatus||'--')+'</span></div>';
+}
+
+// === Video ===
+async function loadDevices() {
+  try {
+    var r = await fetch(EASY + '/devices?page=1&size=10', { headers: { 'Authorization': AUTH } });
+    var d = await r.json();
+    var items = d.items || d.data || [];
+    for (var i = 0; i < Math.min(items.length, 4); i++) {
+      deviceIds[i] = items[i].id;
+      log('📷 ' + items[i].name + ': ' + deviceIds[i].substring(0,14)+'...', 'ok');
+    }
+    if (deviceIds[0]) startPlayer();
+  } catch(e) {
+    log('设备列表失败，使用 fallback', 'err');
+    deviceIds = ['PbemokuspQHD5','Psh0GyTpkiSdC','',''];
+    if (deviceIds[0]) startPlayer();
+  }
+}
+
+function destroyPlayer() {
+  if (player) { try { player.destroy(); } catch(e) {} player = null; }
+  var c = document.getElementById('playerContainer'); if (c) c.innerHTML = '';
+}
+
+function startPlayer() {
+  destroyPlayer();
+  if (!EP || !deviceIds[activeCam]) return;
+
+  var url = 'http://192.168.2.57/webrtc-api/live/' + deviceIds[activeCam] + '_01.flv';
+  var cont = document.getElementById('playerContainer');
+  var ph = document.getElementById('placeholder');
+  var labels = ['前方视角','左侧视角','右侧视角','后方视角'];
+  document.getElementById('camLabel').textContent = '摄像头'+(activeCam+1)+' — '+labels[activeCam];
+
+  ph.style.display = ''; ph.innerHTML = '<span class="icon">🎥</span>连接中...';
+  log('📹 ' + labels[activeCam] + ' 连接...', 'info');
+
+  try {
+    player = new EP({
+      container: cont, url: url, isLive: true, autoplay: true,
+      muted: true, hasAudio: false, stretch: false, lang: 'zh'
+    });
+    var t0 = Date.now();
+    var chk = setInterval(function() {
+      var v = cont.querySelector('video'), c = cont.querySelector('canvas');
+      if ((v && v.videoWidth > 0) || (c && c.width > 0)) {
+        clearInterval(chk);
+        ph.style.display = 'none';
+        log('✅ 视频就绪 ('+((Date.now()-t0)/1000).toFixed(1)+'s)', 'ok');
+        document.getElementById('tbTime').textContent = new Date().toLocaleString('zh-CN');
+      }
+    }, 300);
+  } catch(e) { log('❌ 播放失败: '+e.message, 'err'); }
+}
+
+function switchCam(idx) {
+  if (idx === activeCam && player) return;
+  activeCam = idx;
+  var btns = document.getElementById('camSwitcher').querySelectorAll('button');
+  btns.forEach(function(b,i){ b.className = i===idx?'active':''; });
+  startPlayer();
+}
+
+// === AGV Control ===
+async function ctrlCmd(action) {
+  if (!taskId) { log('无任务', 'err'); return; }
+  var labels = {forward:'前进',backward:'后退',stop:'停止'};
+  try {
+    var r = await fetch(API + '/agv/movement/' + action, { method: 'POST' });
+    log('📡 ' + (labels[action]||action) + ' → HTTP ' + r.status, r.status===200?'ok':'err');
+  } catch(e) { log('控制失败: '+e.message, 'err'); }
+}
+
+function ctrlDown(action) { ctrlPressed = action; ctrlCmd(action); }
+function ctrlUp() { if (ctrlPressed) { ctrlCmd('stop'); ctrlPressed = null; } }
+
+// === Polling ===
+function startPolling() {
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(async function() {
+    // Heartbeat
+    try {
+      var hb = await fetch(API + '/agv/movement/heartbeat');
+      var hd = await hb.json();
+      agvData = hd.data || hd;
+      updateAgvStatus();
+    } catch(e) {}
+
+    // Live flaws
+    if (taskId) {
+      try {
+        var lr = await fetch(API + '/agv/flaw/live/' + taskId);
+        var ld = await lr.json();
+        if ((ld.code===200||ld.code===0) && ld.data) {
+          var arr = Array.isArray(ld.data) ? ld.data : [ld.data];
+          for (var i = 0; i < arr.length; i++) {
+            if (arr[i] && !arr[i].shown) {
+              log('⚠️ 新故障: '+(arr[i].flawName||'未知')+' @ '+(arr[i].flawDistance||'?')+'m', 'err');
+              document.getElementById('flawBadge').style.display = '';
+              setTimeout(function(){ document.getElementById('flawBadge').style.display = 'none'; }, 4000);
+              // Mark shown
+              fetch(API + '/agv/flaw', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({...arr[i], shown: true}) });
+              refreshFlaws();
+            }
+          }
+        }
+      } catch(e) {}
+    }
+  }, 2000);
+}
+
+function updateAgvStatus() {
+  var s = agvData;
+  var isRunning = s.isRunning;
+  document.getElementById('tbHb').innerHTML = isRunning ? '<span style="color:#3fb950">● 行驶中</span>' : '<span style="color:#8b949e">● 待机</span>';
+  document.getElementById('tbTime').textContent = s.sysTime || '--';
+
+  document.getElementById('agvStatus').innerHTML =
+    '<div class="info-row"><span class="lbl">行驶状态</span><span class="val '+(isRunning?'ok':'')+'">'+(isRunning?'行驶中':'待机')+'</span></div>'+
+    '<div class="info-row"><span class="lbl">当前位置</span><span class="val">'+(s.currentPosition||0).toFixed(2)+' m</span></div>'+
+    '<div class="info-row"><span class="lbl">系统时间</span><span class="val">'+(s.sysTime||'--')+'</span></div>';
+
+  // Progress bar
+  var dist = parseFloat(s.currentPosition) || 0;
+  var total = parseFloat(task && task.taskTrip ? task.taskTrip : 500);
+  var pct = Math.min((dist/total)*100, 100);
+  document.getElementById('progressFill').style.width = pct + '%';
+}
+
+// === Flaws ===
+async function refreshFlaws() {
+  if (!taskId) return;
+  try {
+    var r = await fetch(API + '/agv/flaw/list?taskId='+taskId+'&pageNum=1&pageSize=200');
+    var d = await r.json();
+    flaws = d.rows || [];
+    renderFlaws();
+    renderMarkers();
+  } catch(e) {}
+}
+
+function renderFlaws() {
+  var el = document.getElementById('flawList');
+  if (!flaws.length) { el.innerHTML = '<span style="color:#484f58">暂无故障记录</span>'; return; }
+  var statusLabel = function(f){ return f.confirmed ? '<span class="tag confirmed">已确认</span>' : '<span class="tag pending">待确认</span>'; };
+  el.innerHTML = flaws.map(function(f){
+    return '<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:11px;border-bottom:1px solid rgba(255,255,255,.03)">'+
+      '<span>'+(f.flawName||'--')+' <span style="color:#484f58">'+(f.flawDistance||'?')+'m</span></span>'+
+      statusLabel(f)+'</div>';
+  }).join('');
+}
+
+function renderMarkers() {
+  var layer = document.getElementById('markersLayer');
+  layer.innerHTML = '';
+  var total = parseFloat(task && task.taskTrip ? task.taskTrip : 500);
+  flaws.forEach(function(f) {
+    var pct = Math.min(((parseFloat(f.flawDistance)||0)/total)*100, 100);
+    var dot = document.createElement('div');
+    dot.className = 'marker' + (f.confirmed ? '' : '');
+    dot.style.left = pct + '%';
+    dot.style.background = f.confirmed ? '#f85149' : '#d2991d';
+    dot.title = (f.flawName||'--') + ' ('+(f.flawDistance||'?')+'m)';
+    layer.appendChild(dot);
+  });
+  // AGV marker
+  var agv = document.createElement('div');
+  agv.className = 'marker agv';
+  agv.id = 'agvMarker';
+  layer.appendChild(agv);
+}
+
+// === End task ===
+async function endTask(isAbort) {
+  if (!taskId) return;
+  var label = isAbort?'中止':'完成';
+  if (!confirm('确定要'+label+'当前任务吗？')) return;
+  try {
+    var r = await fetch(API+'/agv/task/end/'+taskId+'?isAbort='+(isAbort?'true':'false'),{method:'POST'});
+    var d = await r.json();
+    if (d.code===200||d.code===0) {
+      log('✅ 任务已'+label, 'ok');
+      alert('任务已'+label);
+    } else {
+      log(label+'失败: '+(d.msg||''), 'err');
+    }
+  } catch(e) { log('异常: '+e.message, 'err'); }
+}
+
+// === Init ===
+window.addEventListener('DOMContentLoaded', function() {
+  // Wait for EasyPlayer
+  var retries = 0;
+  var wait = setInterval(function() {
+    retries++;
+    EP = window['EasyPlayer-pro'] || window.EasyPlayer || null;
+    if (EP) { clearInterval(wait); log('EasyPlayer-pro 就绪','ok'); }
+    else if (retries > 30) { clearInterval(wait); log('EasyPlayer-pro 超时','err'); }
+  }, 300);
+
+  // Switcher clicks
+  document.getElementById('camSwitcher').addEventListener('click', function(e) {
+    var btn = e.target.closest('button');
+    if (btn) {
+      var idx = parseInt(btn.getAttribute('data-cam'));
+      if (!isNaN(idx) && deviceIds[idx]) switchCam(idx);
+    }
+  });
+
+  // Keyboard
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') { e.preventDefault(); ctrlDown('forward'); }
+    if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') { e.preventDefault(); ctrlDown('backward'); }
+    if (e.key === ' ' || e.key === 'Escape') { e.preventDefault(); ctrlCmd('stop'); ctrlPressed = null; }
+  });
+  document.addEventListener('keyup', function(e) {
+    if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W' || e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') {
+      e.preventDefault(); ctrlUp();
+    }
+  });
+
+  // Load from URL param
+  var idFromUrl = getParam('id');
+  if (idFromUrl) {
+    document.getElementById('taskIdInput').value = idFromUrl;
+    // Delay load until EasyPlayer ready
+    var loadWhenReady = setInterval(function() {
+      if (window['EasyPlayer-pro'] || window.EasyPlayer) { clearInterval(loadWhenReady); loadTask(); }
+    }, 500);
+  }
+
+  log('页面就绪 — 输入任务ID开始', 'info');
+});
+</script>
+</body>
+</html>

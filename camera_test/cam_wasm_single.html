@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>实时监控 — WASM 解码</title>
+<!-- 必须：CryptoJS 在 EasyPlayer 之前加载 -->
+<script src="easyplayer/crypto-js.js"></script>
+<script src="easyplayer/EasyPlayer-pro.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0d1117;color:#e0e0e0;font-family:'Microsoft YaHei',Arial,sans-serif;height:100vh;overflow:hidden;display:flex;flex-direction:column}
+
+/* 顶栏 */
+.topbar{height:48px;background:#161b22;border-bottom:1px solid #21262d;display:flex;align-items:center;padding:0 16px;justify-content:space-between;flex-shrink:0}
+.topbar .title{font-size:15px;font-weight:bold;color:#fff}
+.topbar .title .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;background:#3fb950;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.topbar .info{font-size:12px;color:#8b949e}
+
+/* 视频区 */
+.video-area{flex:1;background:#000;position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.video-area .player-wrap{width:100%;height:100%;position:absolute;top:0;left:0}
+.video-area .player-wrap video,.video-area .player-wrap canvas{width:100%!important;height:100%!important;object-fit:contain}
+.video-area .placeholder{text-align:center;color:#484f58;z-index:2;pointer-events:none}
+.video-area .placeholder .icon{font-size:64px;display:block;margin-bottom:12px}
+
+/* 摄像头标识（左下） */
+.cam-label{position:absolute;bottom:12px;left:12px;background:rgba(0,0,0,.65);color:#fff;padding:5px 14px;border-radius:4px;font-size:13px;z-index:10;pointer-events:none}
+
+/* 切换器（右上） */
+.cam-switcher{position:absolute;top:12px;right:12px;display:flex;gap:4px;background:rgba(0,0,0,.55);padding:5px 8px;border-radius:8px;z-index:10}
+.cam-switcher button{padding:6px 14px;border:1px solid rgba(255,255,255,.25);border-radius:5px;background:rgba(255,255,255,.08);color:#ccc;cursor:pointer;font-size:13px;transition:all .2s}
+.cam-switcher button:hover{background:rgba(255,255,255,.15)}
+.cam-switcher button.active{background:#409eff;border-color:#409eff;color:#fff}
+
+/* 底栏 */
+.bottombar{height:36px;background:#161b22;border-top:1px solid #21262d;display:flex;align-items:center;padding:0 16px;justify-content:space-between;font-size:11px;color:#8b949e;flex-shrink:0}
+.bottombar .status{display:flex;gap:16px;align-items:center}
+.bottombar .status span{display:flex;align-items:center;gap:4px}
+.bottombar .status .ok{color:#3fb950}.bottombar .status .warn{color:#d2991d}
+
+/* 日志 */
+#logWrap{height:120px;flex-shrink:0;background:#0d1117;border-top:1px solid #21262d;overflow:hidden;display:flex;flex-direction:column}
+#logWrap .log-header{padding:4px 12px;background:#161b22;font-size:10px;color:#8b949e;display:flex;justify-content:space-between}
+#log{flex:1;overflow-y:auto;padding:6px 12px;font-size:10px;line-height:1.6;font-family:Consolas,monospace;color:#8b949e}
+</style>
+</head>
+<body>
+
+<!-- 顶栏 -->
+<div class="topbar">
+  <span class="title"><span class="dot"></span>实时监控</span>
+  <span class="info" id="sysTime">--</span>
+</div>
+
+<!-- 视频 -->
+<div class="video-area" id="videoArea">
+  <div class="player-wrap" id="playerContainer"></div>
+  <div class="placeholder" id="placeholder">
+    <span class="icon">🎥</span>正在连接...
+  </div>
+  <div class="cam-label" id="camLabel">摄像头1 — 前方视角</div>
+  <div class="cam-switcher" id="camSwitcher">
+    <button class="active" data-cam="0">前</button>
+    <button data-cam="1">左</button>
+    <button data-cam="2">右</button>
+    <button data-cam="3">后</button>
+  </div>
+</div>
+
+<!-- 底栏 -->
+<div class="bottombar">
+  <div class="status">
+    <span>流协议 <b class="ok">HTTP-FLV</b></span>
+    <span>解码 <b class="ok">WASM</b></span>
+    <span>延迟 <b class="ok" id="latencyLabel">--</b></span>
+  </div>
+  <span id="frameInfo">--</span>
+</div>
+
+<!-- 日志 -->
+<div id="logWrap">
+  <div class="log-header"><span>📋 日志</span><span id="logCount">0 条</span></div>
+  <div id="log"></div>
+</div>
+
+<script>
+var deviceIds = [];          // from easy-api
+var camNames = ['前方视角','左侧视角','右侧视角','后方视角'];
+var activeCam = 0;           // current active camera index
+var player = null;           // EasyPlayer instance
+var EP = null;               // EasyPlayer constructor
+var logLines = 0;
+
+function log(msg, cls) {
+  var el = document.getElementById('log');
+  var now = new Date();
+  var ts = ('0'+now.getHours()).slice(-2)+':'+('0'+now.getMinutes()).slice(-2)+':'+('0'+now.getSeconds()).slice(-2);
+  var color = cls === 'ok' ? '#3fb950' : cls === 'err' ? '#f85149' : cls === 'info' ? '#58a6ff' : '#8b949e';
+  var div = document.createElement('div');
+  div.innerHTML = '<span style="color:#484f58">'+ts+'</span> <span style="color:'+color+'">'+msg+'</span>';
+  el.appendChild(div);
+  logLines++;
+  document.getElementById('logCount').textContent = logLines + ' 条';
+  el.scrollTop = el.scrollHeight;
+}
+
+function switchCam(index) {
+  if (index === activeCam && player) return;
+  activeCam = index;
+
+  // Update switcher buttons
+  var btns = document.getElementById('camSwitcher').querySelectorAll('button');
+  btns.forEach(function(b, i){ b.className = i === index ? 'active' : ''; });
+
+  // Update label
+  document.getElementById('camLabel').textContent = '摄像头'+(index+1)+' — '+camNames[index];
+
+  // Restart player
+  startPlayer();
+}
+
+function destroyPlayer() {
+  if (player) {
+    try { player.destroy(); } catch(e) {}
+    player = null;
+  }
+  var container = document.getElementById('playerContainer');
+  if (container) container.innerHTML = '';
+}
+
+function startPlayer() {
+  destroyPlayer();
+
+  if (!EP) { log('EasyPlayer-pro 未加载', 'err'); return; }
+  if (!deviceIds[activeCam]) { log('无设备ID', 'err'); return; }
+
+  var streamUrl = 'http://192.168.2.57/webrtc-api/live/' + deviceIds[activeCam] + '_01.flv';
+  var container = document.getElementById('playerContainer');
+  var placeholder = document.getElementById('placeholder');
+
+  placeholder.style.display = '';
+  placeholder.innerHTML = '<span class="icon">🎥</span>连接中...';
+  log('切换摄像头'+(activeCam+1)+' | '+streamUrl, 'info');
+
+  try {
+    player = new EP({
+      container: container,
+      url: streamUrl,
+      isLive: true,
+      autoplay: true,
+      muted: true,
+      hasAudio: false,
+      stretch: false,
+      lang: 'zh'
+    });
+
+    var t0 = Date.now();
+    var check = setInterval(function() {
+      var v = container.querySelector('video');
+      var c = container.querySelector('canvas');
+      if ((v && v.videoWidth > 0) || (c && c.width > 0)) {
+        clearInterval(check);
+        var el = ((Date.now()-t0)/1000).toFixed(1);
+        placeholder.style.display = 'none';
+        var res = v ? v.videoWidth+'x'+v.videoHeight : (c ? c.width+'x'+c.height : '?');
+        document.getElementById('frameInfo').textContent = res + ' | 就绪耗时 ' + el + 's';
+        document.getElementById('latencyLabel').textContent = '< 1s';
+        document.getElementById('latencyLabel').className = 'ok';
+        log('✅ 已渲染 ' + res + ' (' + el + 's)', 'ok');
+      }
+    }, 300);
+
+    // Update system time
+    var st = new Date();
+    document.getElementById('sysTime').textContent =
+      st.getFullYear()+'-'+('0'+(st.getMonth()+1)).slice(-2)+'-'+('0'+st.getDate()).slice(-2)+' '+
+      ('0'+st.getHours()).slice(-2)+':'+('0'+st.getMinutes()).slice(-2)+':'+('0'+st.getSeconds()).slice(-2);
+
+  } catch(e) {
+    log('❌ 播放失败: ' + e.message, 'err');
+    placeholder.innerHTML = '<span class="icon">❌</span>'+e.message;
+  }
+}
+
+// Init
+window.addEventListener('DOMContentLoaded', function() {
+  var retries = 0;
+  var wait = setInterval(function() {
+    retries++;
+    EP = window['EasyPlayer-pro'] || window.EasyPlayer || null;
+    if (EP) {
+      clearInterval(wait);
+      log('EasyPlayer-pro 就绪 ✅ CryptoJS: ' + (window.CryptoJS ? '✅' : '❌'), 'ok');
+
+      // Fetch device list
+      fetch('http://192.168.2.57/easy-api/devices?page=1&size=10', {
+        headers: { 'Authorization': 'Basic YWRtaW4xMjM6QWRtaW5AMTIz' }
+      }).then(function(r){ return r.json(); }).then(function(d) {
+        var items = d.items || d.data || [];
+        for (var i = 0; i < Math.min(items.length, 4); i++) {
+          deviceIds[i] = items[i].id;
+          log('📷 ' + items[i].name + ': ' + deviceIds[i].substring(0,14)+'...', 'ok');
+        }
+        if (deviceIds[0]) startPlayer();
+      }).catch(function(e) {
+        log('设备列表获取失败，使用 fallback', 'err');
+        deviceIds = ['PbemokuspQHD5','Psh0GyTpkiSdC','',''];
+        if (deviceIds[0]) startPlayer();
+      });
+
+      // Switcher click handlers
+      document.getElementById('camSwitcher').addEventListener('click', function(e) {
+        var btn = e.target.closest('button');
+        if (btn) {
+          var idx = parseInt(btn.getAttribute('data-cam'));
+          if (!isNaN(idx) && deviceIds[idx]) switchCam(idx);
+        }
+      });
+
+    } else if (retries > 30) {
+      clearInterval(wait);
+      log('EasyPlayer-pro 加载超时', 'err');
+    }
+  }, 300);
+});
+</script>
+</body>
+</html>

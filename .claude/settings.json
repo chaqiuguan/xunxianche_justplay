@@ -1,0 +1,40 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s \"http://192.168.2.57/prod-api/agv/flaw/list?pageNum=1&pageSize=5\")",
+      "Bash(python3 -c ' *)",
+      "Bash(curl -s \"http://192.168.2.57/prod-api/agv/flaw/list\")",
+      "Bash(curl -s \"http://192.168.2.57/prod-api/agv/flaw/list?pageNum=1&pageSize=3\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('total:', d['total'], '| sample:', d['rows'][:1] if d['rows'] else 'EMPTY'\\)\")",
+      "Bash(curl -s \"http://192.168.2.57/prod-api/agv/task/list?pageNum=1&pageSize=10\")",
+      "Bash(curl -s -o /dev/null -w \"http: %{http_code}\\\\n\" \"http://192.168.2.57/prod-api/agv/movement/heartbeat\" --connect-timeout 5)",
+      "Bash(netsh wlan *)",
+      "Bash(curl -s -o \"d:/NEUwork/x巡线车玩的/picture/20260623222923432.jpg\" -w \"HTTP %{http_code} Size: %{size_download}\" \"http://192.168.2.57/prod-api/2026-06-23/20260623222923432.jpg\")",
+      "Bash(curl -s -o \"d:/NEUwork/x巡线车玩的/picture/20260623224807359.jpg\" -w \"HTTP %{http_code} Size: %{size_download}\" \"http://192.168.2.57/prod-api/2026-06-23/20260623224807359.jpg\")",
+      "Bash(curl -s -o \"d:/NEUwork/x巡线车玩的/picture/20260623222923432.jpg\" -w \"HTTP %{http_code} Size: %{size_download}\" \"http://192.168.2.57/2026-06-23/20260623222923432.jpg\")",
+      "Bash(curl -s -o \"d:/NEUwork/x巡线车玩的/picture/20260623224807359.jpg\" -w \"HTTP %{http_code} Size: %{size_download}\" \"http://192.168.2.57/2026-06-23/20260623224807359.jpg\")",
+      "Bash(curl -s -o \"d:/NEUwork/x巡线车玩的/picture/20260623222923432.jpg\" \"http://192.168.2.57/prod-api/file/2026-06-23/20260623222923432.jpg\")",
+      "Bash(curl -s -o \"d:/NEUwork/x巡线车玩的/picture/20260623224807359.jpg\" \"http://192.168.2.57/prod-api/file/2026-06-23/20260623224807359.jpg\")",
+      "Bash(curl -s \"http://192.168.2.57/webrtc-api/index/api/webrtc\" -X POST -H \"Content-Type: application/json\" -d '{}')",
+      "Bash(curl -s \"http://192.168.2.57/easy-api/devices?page=1&size=10\" -H \"Authorization: Basic YWRtaW4xMjM6QWRtaW5AMTIz\")",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code} Size: %{size_download}\\\\n\" \"http://192.168.2.57/easyplayer/EasyPlayer-pro.js\")",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code} Size: %{size_download}\\\\n\" \"http://192.168.2.57/easyplayer/EasyPlayer-pro.wasm\")",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code} Size: %{size_download}\\\\n\" \"http://192.168.2.57/webrtc-api/live/PbemokuspQHD5_01.flv\")",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code} Size: %{size_download}\\\\n\" \"http://192.168.2.57/js/crypto-js.js\")",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code} Size: %{size_download}\\\\n\" \"http://192.168.2.57/crypto-js.js\")",
+      "Bash(grep -oP '\\\\.wasm[^\"]{0,50}|wasmUrl[^,]{0,50}|wasmPath[^,]{0,50}|decoderPath[^,]{0,50}|\\\\.worker[^\"]{0,30}')",
+      "Bash(curl -s \"http://192.168.2.57/taskExecute?id=3542\")",
+      "Bash(curl -s \"http://192.168.2.57/static/css/app.53e7c4f2.css\")",
+      "Bash(curl -s \"http://192.168.2.57/static/css/chunk-libs.e13d7aaa.css\")",
+      "Bash(grep -o 'el-button[^>]*>[^<]*<\\\\/button>\\\\|class=\"el-button[^\"]*\"[^>]*>[^<]*<' \"d:/NEUwork/x巡线车玩的/qianduan_chunrengong_ui/src/views/tasklist.vue\")",
+      "Bash(grep -v '^\\\\s*$')",
+      "Bash(grep -v '^\\\\s*$\\\\|^el-\\\\|^\\\\.')"
+    ],
+    "additionalDirectories": [
+      "D:\\NEUwork\\x_xunxianche_justplay\\app\\src\\main",
+      "D:\\NEUwork\\x_xunxianche_justplay\\gradle",
+      "D:\\NEUwork\\x_xunxianche_justplay\\app",
+      "D:\\NEUwork\\xunxianche_harmony\\xunxianche_harmony\\entry\\src\\main"
+    ]
+  }
+}

@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>巡检任务列表</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0d1117;color:#e0e0e0;font-family:'Microsoft YaHei',Arial,sans-serif;min-height:100vh;padding:12px}
+h1{text-align:center;font-size:17px;padding:6px 0;color:#fff}
+.toolbar{display:flex;gap:8px;justify-content:center;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+.toolbar label{font-size:11px;color:#8b949e}
+.toolbar input,.toolbar select{padding:4px 8px;border:1px solid #30363d;border-radius:4px;background:#161b22;color:#c9d1d9;font-size:11px}
+.toolbar select{min-width:90px}
+.btn{padding:5px 12px;border:1px solid #30363d;border-radius:4px;background:transparent;color:#c9d1d9;cursor:pointer;font-size:11px}
+.btn:hover{opacity:.85}
+.btn.go{background:#238636;border-color:#2ea043;color:#fff}
+.btn.danger{color:#f85149;border-color:#da3633}
+.stats{text-align:center;font-size:11px;color:#8b949e;margin-bottom:8px}
+.table-wrap{background:#161b22;border:1px solid #21262d;border-radius:8px;overflow:hidden}
+table{width:100%;border-collapse:collapse;font-size:11px}
+thead{background:rgba(255,255,255,.03)}
+th{padding:7px 8px;text-align:left;font-weight:600;color:#8b949e;border-bottom:1px solid #21262d;white-space:nowrap}
+td{padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.03);color:#c9d1d9}
+tbody tr:hover{background:rgba(255,255,255,.02)}
+.tag{font-size:10px;padding:1px 6px;border-radius:3px}
+.tag.dai{background:rgba(230,162,60,.15);color:#d2991d}
+.tag.run{background:rgba(64,158,255,.15);color:#58a6ff}
+.tag.up{background:rgba(139,148,158,.15);color:#8b949e}
+.tag.done{background:rgba(103,194,58,.15);color:#3fb950}
+.pagination{display:flex;gap:4px;justify-content:center;align-items:center;padding:10px 0;font-size:11px;color:#8b949e}
+.pagination button{padding:3px 8px;border:1px solid #30363d;border-radius:3px;background:transparent;color:#c9d1d9;cursor:pointer;font-size:10px}
+.pagination button.active{background:#1f6feb;border-color:#1f6feb;color:#fff}
+.pagination button:disabled{opacity:.4;cursor:default}
+.link{color:#58a6ff;cursor:pointer;text-decoration:none}
+.link:hover{text-decoration:underline}
+#log{margin-top:10px;background:#161b22;border:1px solid #21262d;border-radius:6px;padding:10px 14px;font-size:10px;line-height:1.6;font-family:Consolas,monospace;height:120px;overflow-y:auto;color:#8b949e}
+</style>
+</head>
+<body>
+<h1>巡检任务列表</h1>
+<div class="toolbar">
+  <label>编号:</label><input id="sCode" placeholder="模糊搜索" style="width:120px">
+  <label>创建人:</label><input id="sCreator" placeholder="输入" style="width:80px">
+  <label>执行人:</label><input id="sExecutor" placeholder="输入" style="width:80px">
+  <label>状态:</label><select id="sStatus"><option value="">全部</option><option value="待巡视">待巡视</option><option value="巡视中">巡视中</option><option value="待上传">待上传</option><option value="已完成">已完成</option></select>
+  <br>
+  <label>执行时间:</label><input type="date" id="sDateFrom" style="width:130px">
+  <label>至</label><input type="date" id="sDateTo" style="width:130px">
+  <button class="btn go" onclick="search()">搜索</button>
+  <button class="btn" onclick="resetSearch()">重置</button>
+  <button class="btn danger" onclick="deleteSelectedTasks()">删除选中</button>
+</div>
+<div class="stats" id="stats">--</div>
+<div class="table-wrap">
+  <table>
+    <thead><tr>
+      <th><input type="checkbox" id="selectAll" onclick="toggleSelectAll()"></th>
+      <th>ID</th><th>编号</th><th>名称</th><th>起点</th><th>距离</th><th>创建人</th><th>执行人</th><th>状态</th><th>执行时间</th><th>操作</th>
+    </tr></thead>
+    <tbody id="tb"><tr><td colspan="11" style="text-align:center;padding:30px;color:#484f58">点击搜索加载任务</td></tr></tbody>
+  </table>
+</div>
+<div class="pagination" id="pager"></div>
+<div id="log"><span style="color:#484f58">--:--:--</span> 就绪</div>
+
+<script>
+var API = 'http://192.168.2.57/prod-api';
+var page = 1, pageSize = 15, total = 0;
+var allRows = [];
+var dateFilterActive = false; // true = loaded all rows for date filtering
+
+function log(msg, cls) {
+  var el = document.getElementById('log');
+  var now = new Date();
+  var ts = ('0'+now.getHours()).slice(-2)+':'+('0'+now.getMinutes()).slice(-2)+':'+('0'+now.getSeconds()).slice(-2);
+  el.innerHTML += '<div style="color:'+(cls==='ok'?'#3fb950':cls==='err'?'#f85149':cls==='info'?'#58a6ff':'#8b949e')+'"><span style="color:#484f58">'+ts+'</span> '+msg+'</div>';
+  el.scrollTop = el.scrollHeight;
+}
+
+function statusTag(s) {
+  var map = {'待巡视':['dai','待巡视'],'巡视中':['run','巡视中'],'待上传':['up','待上传'],'已完成':['done','已完成']};
+  var t = map[s] || ['','--'];
+  return '<span class="tag '+t[0]+'">'+t[1]+'</span>';
+}
+
+function fmtDate(d) { if(!d) return '-'; return d; }
+
+function filterByDate(rows) {
+  var from = document.getElementById('sDateFrom').value;
+  var to = document.getElementById('sDateTo').value;
+  if (!from && !to) return rows;
+  return rows.filter(function(t) {
+    var dateStr = t.execTime || t.createTime || t.endTime || '';
+    if (!dateStr) return false;
+    var datePart = String(dateStr).substring(0, 10);
+    if (from && datePart < from) return false;
+    if (to && datePart > to) return false;
+    return true;
+  });
+}
+
+function getActions(t) {
+  var a = [];
+  if (t.taskStatus === '待巡视') {
+    a.push('<span class="link" onclick="startTask('+t.id+')">启动</span>');
+  } else if (t.taskStatus === '巡视中') {
+    a.push('<span class="link" onclick="endTask('+t.id+',false)">完成</span>');
+    a.push('<span class="link" style="color:#f85149" onclick="endTask('+t.id+',true)">终止</span>');
+  } else if (t.taskStatus === '待上传') {
+    a.push('<span class="link" onclick="uploadTask('+t.id+')">上传</span>');
+  }
+  return a.join(' ');
+}
+
+async function loadTasks(isNewSearch) {
+  var dateFrom = document.getElementById('sDateFrom').value;
+  var dateTo = document.getElementById('sDateTo').value;
+  var hasDateFilter = !!(dateFrom || dateTo);
+
+  if (isNewSearch) page = 1;
+  else if (!hasDateFilter) page = page;
+
+  var effectivePageSize = hasDateFilter ? 500 : pageSize;
+  var effectivePage = hasDateFilter ? 1 : page;
+
+  var query = {
+    pageNum: effectivePage, pageSize: effectivePageSize,
+    taskCode: document.getElementById('sCode').value.trim()||undefined,
+    creator: document.getElementById('sCreator').value.trim()||undefined,
+    executor: document.getElementById('sExecutor').value.trim()||undefined,
+    taskStatus: document.getElementById('sStatus').value||undefined
+  };
+  Object.keys(query).forEach(function(k){ if(!query[k]) delete query[k]; });
+
+  var qs = Object.keys(query).map(function(k){ return k+'='+encodeURIComponent(query[k]); }).join('&');
+  log(hasDateFilter ? '加载全部数据（日期筛选）...' : '加载: page='+page, 'info');
+
+  try {
+    var res = await fetch(API + '/agv/task/list?' + qs);
+    var d = await res.json();
+    total = d.total || 0;
+    allRows = d.rows || [];
+    dateFilterActive = hasDateFilter;
+
+    if (hasDateFilter) {
+      var filtered = filterByDate(allRows);
+      document.getElementById('stats').textContent = '共 '+total+' 条 | 日期筛选: '+filtered.length+' 条（已加载全部）';
+      renderTable(filtered);
+      document.getElementById('pager').innerHTML = '<span style="color:#8b949e">已加载全部 '+allRows.length+' 条，筛选出 '+filtered.length+' 条</span>';
+    } else {
+      document.getElementById('stats').textContent = '共 '+total+' 条 | 第 '+page+' 页';
+      renderTable(allRows);
+      renderPager();
+    }
+  } catch(e) {
+    log('加载失败: '+e.message, 'err');
+  }
+}
+
+function renderTable(rows) {
+  var tb = document.getElementById('tb');
+  if (!rows.length) {
+    tb.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:30px;color:#484f58">无数据</td></tr>';
+    return;
+  }
+  tb.innerHTML = rows.map(function(t) {
+    return '<tr>'+
+      '<td><input type="checkbox" data-id="'+t.id+'"></td>'+
+      '<td>'+t.id+'</td>'+
+      '<td>'+t.taskCode+'</td>'+
+      '<td>'+t.taskName+'</td>'+
+      '<td>'+t.startPos+'</td>'+
+      '<td>'+t.taskTrip+'</td>'+
+      '<td>'+t.creator+'</td>'+
+      '<td>'+t.executor+'</td>'+
+      '<td>'+statusTag(t.taskStatus)+'</td>'+
+      '<td>'+fmtDate(t.execTime)+'</td>'+
+      '<td>'+getActions(t)+'</td>'+
+      '</tr>';
+  }).join('');
+}
+
+function renderPager() {
+  var tp = Math.ceil(total / pageSize) || 1;
+  var html = '<button '+(page<=1?'disabled':'')+' onclick="goPage('+(page-1)+')">上一页</button>';
+  for (var i=1; i<=tp; i++) {
+    html += '<button class="'+(i===page?'active':'')+'" onclick="goPage('+i+')">'+i+'</button>';
+  }
+  html += '<button '+(page>=tp?'disabled':'')+' onclick="goPage('+(page+1)+')">下一页</button>';
+  html += ' <span>共 '+tp+' 页</span>';
+  document.getElementById('pager').innerHTML = html;
+}
+
+function goPage(n) {
+  if (dateFilterActive) return; // no pagination when date filtering
+  var tp = Math.ceil(total/pageSize); if (n<1||n>tp) return; page = n; loadTasks(false);
+}
+function search() { loadTasks(true); }
+function resetSearch() {
+  document.getElementById('sCode').value='';
+  document.getElementById('sCreator').value='';
+  document.getElementById('sExecutor').value='';
+  document.getElementById('sStatus').value='';
+  document.getElementById('sDateFrom').value='';
+  document.getElementById('sDateTo').value='';
+  dateFilterActive = false;
+  loadTasks(true);
+}
+function toggleSelectAll() {
+  var m = document.getElementById('selectAll');
+  document.querySelectorAll('#tb input[type=checkbox]').forEach(function(cb){ cb.checked = m.checked; });
+}
+
+async function startTask(id) {
+  log('启动任务 '+id+'...', 'info');
+  var res = await fetch(API + '/agv/task/start/' + id, { method: 'POST' });
+  var d = await res.json();
+  if (d.code === 200 || d.code === 0) { log('任务 '+id+' 已启动', 'ok'); loadTasks(); }
+  else { log('启动失败: '+(d.msg||''), 'err'); }
+}
+
+async function endTask(id, abort) {
+  var label = abort ? '终止' : '完成';
+  log(label+'任务 '+id+'...', 'info');
+  var res = await fetch(API + '/agv/task/end/' + id + '?isAbort=' + (abort?'true':'false'), { method: 'POST' });
+  var d = await res.json();
+  if (d.code === 200 || d.code === 0) { log('任务 '+id+' 已'+label, 'ok'); loadTasks(); }
+  else { log(label+'失败: '+(d.msg||''), 'err'); }
+}
+
+async function uploadTask(id) {
+  log('上传任务 '+id+'...', 'info');
+  var res = await fetch(API + '/agv/task/upload/' + id, { method: 'POST' });
+  var d = await res.json();
+  if (d.code === 200 || d.code === 0) { log('任务 '+id+' 上传成功', 'ok'); loadTasks(); }
+  else { log('上传失败: '+(d.msg||''), 'err'); }
+}
+
+async function deleteSelectedTasks() {
+  var cbs = document.querySelectorAll('#tb input[type=checkbox][data-id]:checked');
+  if (!cbs.length) { log('未选中任何任务', 'err'); return; }
+  var ids = []; cbs.forEach(function(cb){ ids.push(cb.getAttribute('data-id')); });
+  log('删除 '+ids.length+' 个任务...', 'info');
+  var ok=0, fail=0;
+  for (var i=0; i<ids.length; i++) {
+    try {
+      var res = await fetch(API + '/agv/task/' + ids[i], { method: 'DELETE' });
+      var d = await res.json();
+      d.code===200||d.code===0 ? ok++ : fail++;
+    } catch(e) { fail++; }
+  }
+  log('删除: '+ok+' OK, '+fail+' fail', 'ok');
+  loadTasks();
+}
+
+search();
+</script>
+</body>
+</html>

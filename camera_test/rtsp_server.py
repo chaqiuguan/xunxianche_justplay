@@ -107,11 +107,21 @@ class Handler(BaseHTTPRequestHandler):
 
         # === Static file serving ===
         file_path = os.path.join(ROOT_DIR, path.lstrip('/'))
-        # Also check current_control folder as fallback
+        # If path starts with /folder_name/, look directly in that sibling folder
+        path_parts = path.lstrip('/').split('/')
+        if len(path_parts) >= 2 and not os.path.isfile(file_path):
+            folder = path_parts[0]
+            rest = '/'.join(path_parts[1:])
+            folder_path = os.path.join(os.path.dirname(ROOT_DIR), folder, rest)
+            if os.path.isfile(folder_path):
+                file_path = folder_path
+        # Also check sibling folders as fallback
         if not os.path.isfile(file_path):
-            alt = os.path.join(os.path.dirname(ROOT_DIR), 'current_control', path.lstrip('/'))
-            if os.path.isfile(alt):
-                file_path = alt
+            for sub in ['current_control', 'error_detect', 'xunjian_task', 'task_list']:
+                alt = os.path.join(os.path.dirname(ROOT_DIR), sub, path.lstrip('/'))
+                if os.path.isfile(alt):
+                    file_path = alt
+                    break
         if os.path.isfile(file_path):
             content_types = {
                 '.html': 'text/html', '.js': 'application/javascript',

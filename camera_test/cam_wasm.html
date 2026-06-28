@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>摄像头测试 — WASM解码 (仿官方方案)</title>
+<!-- CryptoJS MUST be loaded BEFORE EasyPlayer-pro (EasyPlayer requires window.CryptoJS) -->
+<script src="easyplayer/crypto-js.js"></script>
+<!-- EasyPlayer-pro + WASM — local copy from official server -->
+<script src="easyplayer/EasyPlayer-pro.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#1a1a2e;color:#e0e0e0;font-family:'Microsoft YaHei',Arial,sans-serif;min-height:100vh;padding:12px}
+h1{text-align:center;font-size:18px;padding:8px 0;color:#fff}
+
+.mode-bar{display:flex;gap:12px;justify-content:center;align-items:center;margin:0 0 8px;flex-wrap:wrap}
+.toggle-btn{padding:5px 14px;border:1px solid #30363d;border-radius:14px;background:transparent;color:#909399;cursor:pointer;font-size:11px;margin:2px}
+.toggle-btn.on{background:#67c23a;color:#fff;border-color:#67c23a}
+
+.annotation{max-width:960px;margin:0 auto 10px;background:#0f3460;border-radius:6px;padding:12px 16px;font-size:12px;line-height:1.7}
+.annotation h3{font-size:14px;margin-bottom:4px}
+.annotation table{width:100%;border-collapse:collapse;margin-top:6px}
+.annotation td{padding:3px 8px;border-bottom:1px solid rgba(255,255,255,.06);font-size:11px}
+.annotation td:first-child{color:#888;width:90px}
+.annotation .tag{display:inline-block;padding:1px 8px;border-radius:3px;font-size:10px;margin-right:4px}
+.annotation .tag.green{background:rgba(103,194,58,.2);color:#67c23a}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(460px,1fr));gap:10px}
+.panel{background:#16213e;border:2px solid #0f3460;border-radius:8px;overflow:hidden}
+.panel.ok{border-color:#67c23a}.panel.err{border-color:#f56c6c}
+.ph{padding:8px 12px;font-size:13px;background:rgba(255,255,255,.03);display:flex;justify-content:space-between}
+.vbox{background:#000;min-height:300px;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
+.vbox .msg{text-align:center;color:#666;font-size:13px;position:absolute;pointer-events:none;z-index:2}
+.vbox .msg .icon{font-size:40px;display:block;margin-bottom:6px}
+/* EasyPlayer creates elements inside the container — make them fill the area */
+.player-container{width:100%;height:100%;position:absolute;top:0;left:0}
+.player-container video,.player-container canvas{width:100%!important;height:100%!important;object-fit:contain}
+.foot{padding:6px 12px;font-size:11px;color:#888;background:rgba(0,0,0,.2);display:flex;justify-content:space-between}
+.g{color:#67c23a}.r{color:#f56c6c}.y{color:#e6a23c}
+</style>
+</head>
+<body>
+<h1>📹 摄像头测试 — WASM 解码</h1>
+
+<div class="mode-bar" id="camToggles">
+  <span style="font-size:11px;color:#888">摄像头:</span>
+</div>
+
+<div class="annotation">
+  <h3>🚀 WASM 直连 — 仿官方方案</h3>
+  <table>
+    <tr><td>播放器</td><td>EasyPlayer-pro.js（从官方服务器下载的本地副本）</td></tr>
+    <tr><td>解码</td><td>WASM 软解 H.264 / H.265</td></tr>
+    <tr><td>流协议</td><td>HTTP-FLV，直连 ZLMediakit webrtc-api</td></tr>
+    <tr><td>延迟</td><td><span class="tag green">&lt; 1 秒</span></td></tr>
+    <tr><td>数据流</td><td style="font-family:Consolas;font-size:10px">RTSP → ZLMediakit → HTTP-FLV → EasyPlayer(WASM) → 渲染</td></tr>
+    <tr><td>依赖</td><td>CryptoJS (CDN) + EasyPlayer-pro.js + EasyPlayer-pro.wasm（两文件必须在同目录）</td></tr>
+  </table>
+</div>
+
+<div class="grid" id="grid"></div>
+
+<div id="logWrap" style="max-width:100%;background:#0f3460;border-radius:6px;overflow:hidden;margin-top:8px">
+  <div style="padding:6px 12px;background:rgba(0,0,0,.2);font-size:12px;display:flex;justify-content:space-between">
+    <b>📋 日志</b>
+    <span style="font-size:10px;color:#666">EasyWasm</span>
+  </div>
+  <div id="log" style="height:160px;overflow-y:auto;padding:8px 12px;font-size:10px;line-height:1.6;font-family:Consolas,monospace;white-space:pre-wrap;word-break:break-all;color:#ccc"></div>
+</div>
+
+<script>
+var playerInstances = {};
+var camEnabled = [true, true, true, true];
+var deviceIds = [];
+var EP = null;
+
+function log(msg, cls) {
+  var el = document.getElementById('log');
+  var now = new Date();
+  var ts = ('0'+now.getHours()).slice(-2)+':'+('0'+now.getMinutes()).slice(-2)+':'+('0'+now.getSeconds()).slice(-2);
+  var line = document.createElement('div');
+  line.style.margin = '0';
+  if (cls === 'ok') line.style.color = '#67c23a';
+  if (cls === 'err') line.style.color = '#f56c6c';
+  if (cls === 'info') line.style.color = '#409eff';
+  line.innerHTML = '<span style="color:#666">'+ts+'</span> ' + msg;
+  var elLog = document.getElementById('log');
+  var atBottom = (elLog.scrollHeight - elLog.scrollTop - elLog.clientHeight) < 40;
+  elLog.appendChild(line);
+  if (atBottom) elLog.scrollTop = elLog.scrollHeight;
+}
+
+function toggleCam(i) {
+  camEnabled[i] = !camEnabled[i];
+  var btns = document.getElementById('camToggles').querySelectorAll('button');
+  if (camEnabled[i]) {
+    if (btns[i]) { btns[i].textContent = '📷 摄像头'+(i+1)+': 开'; btns[i].className = 'toggle-btn on'; }
+    log('cam'+(i+1)+' 启用', 'info');
+    startPlayer(i);
+  } else {
+    if (btns[i]) { btns[i].textContent = '📷 摄像头'+(i+1)+': 关'; btns[i].className = 'toggle-btn'; }
+    stopPlayer(i);
+    var tag = document.getElementById('tag'+i); if (tag) { tag.textContent = '⏸ 已禁用'; tag.style.color = '#909399'; }
+    var panel = document.getElementById('p'+i); if (panel) panel.className = 'panel';
+    var msg = document.getElementById('msg'+i); if (msg) { msg.innerHTML = '<span class="icon">⏸</span>已禁用'; msg.style.display = ''; }
+    log('cam'+(i+1)+' 禁用', 'info');
+  }
+}
+
+function stopPlayer(i) {
+  if (playerInstances[i]) {
+    try { playerInstances[i].destroy(); } catch(e) {}
+    playerInstances[i] = null;
+  }
+  var container = document.getElementById('player'+i);
+  if (container) container.innerHTML = '';
+}
+
+function startPlayer(i) {
+  stopPlayer(i);
+
+  if (!EP) { log('cam'+(i+1)+' EasyPlayer 未加载', 'err'); return; }
+  if (!deviceIds[i]) { log('cam'+(i+1)+' 无设备ID，等待设备列表...', 'info'); return; }
+
+  var streamUrl = 'http://192.168.2.57/webrtc-api/live/' + deviceIds[i] + '_01.flv';
+  var container = document.getElementById('player'+i);
+  var tag = document.getElementById('tag'+i);
+  var msg = document.getElementById('msg'+i);
+  var panel = document.getElementById('p'+i);
+  var footL = document.getElementById('footL'+i);
+  var footR = document.getElementById('footR'+i);
+
+  if (!container) return;
+
+  container.innerHTML = '';
+  msg.style.display = '';
+  msg.innerHTML = '<span class="icon">🎥</span>连接中...';
+  tag.textContent = '⏳ WASM';
+  tag.style.color = '#e6a23c';
+  panel.className = 'panel';
+  footL.textContent = 'ZLM | cam'+(i+1);
+  log('cam'+(i+1)+' WASM 连接: '+streamUrl, 'info');
+
+  try {
+    var player = new EP({
+      container: container,
+      url: streamUrl,
+      isLive: true,
+      autoplay: true,
+      muted: true,
+      hasAudio: false,
+      stretch: false,
+      lang: 'zh'
+    });
+    playerInstances[i] = player;
+
+    var checkCount = 0;
+    var checkTimer = setInterval(function() {
+      checkCount++;
+      var videoEl = container.querySelector('video');
+      var canvasEl = container.querySelector('canvas');
+      var hasVideo = videoEl && videoEl.videoWidth > 0;
+      var hasCanvas = canvasEl && canvasEl.width > 0;
+      if (hasVideo || hasCanvas) {
+        clearInterval(checkTimer);
+        tag.textContent = '✅ WASM';
+        tag.style.color = '#67c23a';
+        panel.className = 'panel ok';
+        msg.style.display = 'none';
+        footR.textContent = 'OK (' + ((checkCount*500)/1000).toFixed(1) + 's)';
+        log('cam'+(i+1)+' ✅ WASM 已渲染 ' + ((hasVideo?'video '+videoEl.videoWidth+'x'+videoEl.videoHeight:'canvas '+canvasEl.width+'x'+canvasEl.height)), 'ok');
+      } else if (checkCount > 30) {
+        clearInterval(checkTimer);
+        tag.textContent = '⚠️ 无画面';
+        tag.style.color = '#e6a23c';
+        footR.textContent = '超时(15s)';
+        log('cam'+(i+1)+' ⚠️ WASM 超时无画面', 'err');
+      }
+    }, 500);
+  } catch(e) {
+    tag.textContent = '❌';
+    tag.style.color = '#f56c6c';
+    panel.className = 'panel err';
+    footR.textContent = 'ERR';
+    msg.innerHTML = '<span class="icon">❌</span>' + e.message;
+    log('cam'+(i+1)+' ❌ ' + e.message, 'err');
+  }
+}
+
+function buildUI() {
+  var grid = document.getElementById('grid');
+  var toggles = document.getElementById('camToggles');
+  for (var i = 0; i < 4; i++) {
+    grid.innerHTML +=
+      '<div class="panel" id="p'+i+'">'+
+      '<div class="ph"><b>📷 摄像头'+(i+1)+'</b><span id="tag'+i+'" style="font-size:11px;color:#909399">等待设备...</span></div>'+
+      '<div class="vbox">'+
+      '<div class="player-container" id="player'+i+'"></div>'+
+      '<div class="msg" id="msg'+i+'"><span class="icon">🎥</span>等待设备列表...</div>'+
+      '</div>'+
+      '<div class="foot"><span id="footL'+i+'">--</span><span id="footR'+i+'"></span></div>'+
+      '</div>';
+    var btn = document.createElement('button');
+    btn.textContent = '📷 摄像头'+(i+1)+': 开';
+    btn.className = 'toggle-btn on';
+    btn.onclick = (function(idx){ return function(){ toggleCam(idx); }; })(i);
+    toggles.appendChild(btn);
+  }
+}
+
+async function loadDevices() {
+  log('获取摄像头设备列表...', 'info');
+  try {
+    var resp = await fetch('http://192.168.2.57/easy-api/devices?page=1&size=10', {
+      headers: { 'Authorization': 'Basic YWRtaW4xMjM6QWRtaW5AMTIz' }
+    });
+    var data = await resp.json();
+    var items = data.items || data.data || [];
+    if (!items.length) throw new Error('empty device list');
+    for (var i = 0; i < Math.min(items.length, 4); i++) {
+      deviceIds[i] = items[i].id;
+      var tag = document.getElementById('tag'+i);
+      if (tag) tag.textContent = 'ID: ' + deviceIds[i].substring(0,14) + '...';
+      log('摄像头'+(i+1)+': ' + items[i].name + ' → ' + deviceIds[i], 'ok');
+    }
+    for (var j = 0; j < 4; j++) {
+      if (camEnabled[j] && deviceIds[j]) startPlayer(j);
+    }
+  } catch(e) {
+    log('获取设备列表失败: ' + e.message + '，使用 fallback', 'err');
+    deviceIds = ['PbemokuspQHD5', 'Psh0GyTpkiSdC', '', ''];
+    for (var k = 0; k < 4; k++) {
+      if (camEnabled[k] && deviceIds[k]) startPlayer(k);
+    }
+  }
+}
+
+window.addEventListener('DOMContentLoaded', function() {
+  // Wait for EasyPlayer-pro to be available
+  var retries = 0;
+  var wait = setInterval(function() {
+    retries++;
+    EP = window['EasyPlayer-pro'] || window.EasyPlayer || null;
+
+    if (EP) {
+      clearInterval(wait);
+      log('EasyPlayer-pro 已就绪', 'ok');
+      log('CryptoJS: ' + (window.CryptoJS ? '✅' : '❌ 未加载！'), window.CryptoJS ? 'ok' : 'err');
+      buildUI();
+      loadDevices();
+    } else if (retries > 30) {
+      clearInterval(wait);
+      log('EasyPlayer-pro 加载超时', 'err');
+      if (!window.CryptoJS) {
+        log('CryptoJS 也未加载 — CDN 可能被墙或未连外网', 'err');
+      }
+      buildUI();
+    }
+  }, 300);
+});
+</script>
+</body>
+</html>

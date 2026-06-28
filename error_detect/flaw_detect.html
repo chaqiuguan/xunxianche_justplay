@@ -1,0 +1,218 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>故障检测测试</title><style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0d1117;color:#e0e0e0;font-family:'Microsoft YaHei',Arial,sans-serif;min-height:100vh;padding:12px}
+h1{text-align:center;font-size:17px;padding:6px 0;color:#fff}
+.toolbar{display:flex;gap:10px;justify-content:center;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+.toolbar label{font-size:12px;color:#8b949e}
+.toolbar input{padding:5px 10px;border:1px solid #30363d;border-radius:4px;background:#161b22;color:#c9d1d9;font-size:12px;width:80px;text-align:center}
+.toolbar select{padding:5px 8px;border:1px solid #30363d;border-radius:4px;background:#161b22;color:#c9d1d9;font-size:12px}
+.btn{padding:5px 12px;border:1px solid #30363d;border-radius:4px;background:transparent;color:#c9d1d9;cursor:pointer;font-size:11px;transition:all .2s}
+.btn:hover{opacity:.85}
+.btn.go{background:#238636;border-color:#2ea043;color:#fff}
+.btn.stop{background:#da3633;border-color:#f85149;color:#fff}
+.stats{text-align:center;font-size:11px;color:#8b949e;margin-bottom:8px}
+.table-wrap{background:#161b22;border:1px solid #21262d;border-radius:8px;overflow:hidden;margin-bottom:8px}
+table{width:100%;border-collapse:collapse;font-size:11px}
+thead{background:rgba(255,255,255,.03)}
+th{padding:8px 10px;text-align:left;font-weight:600;color:#8b949e;border-bottom:1px solid #21262d;white-space:nowrap}
+td{padding:7px 10px;border-bottom:1px solid rgba(255,255,255,.03);color:#c9d1d9}
+tbody tr:hover{background:rgba(255,255,255,.02)}
+tbody tr.new{animation:flashIn .6s ease}
+@keyframes flashIn{from{background:rgba(35,134,54,.3)}to{background:transparent}}
+td .tag{font-size:10px;padding:1px 6px;border-radius:3px}
+td .tag.confirmed{background:rgba(103,194,58,.15);color:#3fb950}
+td .tag.pending{background:rgba(230,162,60,.15);color:#d2991d}
+td .tag.uploaded{background:rgba(64,158,255,.15);color:#58a6ff}
+.img-thumb{max-width:60px;max-height:40px;cursor:pointer;border-radius:3px}
+.img-modal{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.85);z-index:99;display:none;justify-content:center;align-items:center}
+.img-modal.show{display:flex}
+.img-modal img{max-width:90%;max-height:90%}
+#logWrap{background:#161b22;border:1px solid #21262d;border-radius:8px;overflow:hidden}
+#logHead{padding:6px 12px;background:rgba(0,0,0,.2);font-size:12px;display:flex;justify-content:space-between}
+#log{height:150px;overflow-y:auto;padding:8px 12px;font-size:10px;line-height:1.6;font-family:Consolas,monospace;color:#8b949e}
+#log .ts{color:#484f58}
+#log .ok{color:#3fb950}#log .err{color:#f85149}#log .info{color:#58a6ff}</style></head><body><h1> 故障检测测试</h1><div class="toolbar"><label>Task ID:</label><input type="number" id="taskId" value="4" min="1"><button class="btn go" onclick="startPolling()"> 开始实时轮询</button><button class="btn stop" onclick="stopPolling()"> 停止</button><button class="btn" onclick="loadHistory()"> 加载历史</button><button class="btn" onclick="clearTable()" style="border-color:#d2991d;color:#d2991d"> 清空</button><button class="btn stop" onclick="deleteSelected()"> 删除选中</button><span id="pollStatus" style="font-size:11px;color:#484f58">已停止</span></div><div class="stats" id="stats">--</div><div class="table-wrap"><table><thead><tr><th><input type="checkbox" id="selectAll" onclick="toggleSelectAll()"></th><th>ID</th><th>故障名称</th><th>类型</th><th>位置(m)</th><th>描述</th><th>等级</th><th>图片</th><th>确认</th><th>上传</th><th>时间</th></tr></thead><tbody id="flawTable"><tr><td colspan="10" style="text-align:center;padding:30px;color:#484f58">输入 Task ID 后点击「开始实时轮询」</td></tr></tbody></table></div><div id="logWrap"><div id="logHead"><b> 日志</b><span style="font-size:10px;color:#484f58">GET /agv/flaw/live/{id} &amp; /agv/flaw/list</span></div><div id="log"><span class="ts">--:--:--</span> 就绪...</div></div><div class="img-modal" id="imgModal" onclick="this.classList.remove('show')"><img id="imgFull" src=""></div><script>
+var API = 'http://192.168.2.57/prod-api';
+var pollTimer = null;
+var pollInterval = 3000;
+var knownFlaws = {}; // id -> flaw, tracks what we've already seen
+var totalNewCount = 0;
+
+function log(msg, cls) {
+ var el = document.getElementById('log');
+ var now = new Date();
+ var ts = ('0'+now.getHours()).slice(-2)+':'+('0'+now.getMinutes()).slice(-2)+':'+('0'+now.getSeconds()).slice(-2);
+ el.innerHTML += '<div class="'+(cls||'')+'"><span class="ts">'+ts+'</span> '+msg+'</div>';
+ el.scrollTop = el.scrollHeight;
+}
+
+function startPolling() {
+ var taskId = document.getElementById('taskId').value;
+ if (!taskId) { log('请输入 Task ID', 'err'); return; }
+ stopPolling();
+ knownFlaws = {};
+ totalNewCount = 0;
+
+ log('=== 开始轮询 taskId='+taskId+' (每'+pollInterval/1000+'s) ===', 'info');
+ document.getElementById('pollStatus').textContent = ' 轮询中';
+ document.getElementById('pollStatus').style.color = '#3fb950';
+
+ pollLive();
+ pollTimer = setInterval(pollLive, pollInterval);
+}
+
+function stopPolling() {
+ if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+ document.getElementById('pollStatus').textContent = '已停止';
+ document.getElementById('pollStatus').style.color = '#484f58';
+ log('=== 轮询停止 ===', 'info');
+}
+
+async function pollLive() {
+ var taskId = document.getElementById('taskId').value;
+ try {
+ var res = await fetch(API + '/agv/flaw/live/' + taskId);
+ var data = await res.json();
+ if (data.code === 200 || data.code === 0) {
+ var flaws = data.data;
+ if (!Array.isArray(flaws)) flaws = flaws ? [flaws] : [];
+ for (var fi = 0; fi < flaws.length; fi++) {
+ var flaw = flaws[fi];
+ if (flaw && flaw.id && !knownFlaws[flaw.id]) {
+ knownFlaws[flaw.id] = flaw;
+ totalNewCount++;
+ log(' 新故障 #'+flaw.id+': '+(flaw.flawName||'?')+' @'+(flaw.flawDistance||'?')+'m', 'ok');
+ addFlawRow(flaw, true);
+ }
+ }
+ document.getElementById('stats').innerHTML =
+ '任务 '+taskId+' | 总故障:<b>'+Object.keys(knownFlaws).length+'</b> | 新发现:<b>'+totalNewCount+'</b>';
+ } else {
+ // No new flaws or error - normal in polling
+ }
+ } catch(e) {
+ log('轮询失败: '+e.message, 'err');
+ }
+}
+
+async function loadHistory() {
+ var taskId = document.getElementById('taskId').value;
+ if (!taskId) { log('请输入 Task ID', 'err'); return; }
+ log('=== 加载历史故障 taskId='+taskId+' ===', 'info');
+
+ try {
+ var res = await fetch(API + '/agv/flaw/list?taskId='+taskId+'&pageNum=1&pageSize=999');
+ var data = await res.json();
+ var flaws = data.rows || [];
+ log('加载到 '+flaws.length+' 条历史记录', 'ok');
+
+ document.getElementById('flawTable').innerHTML = '';
+ knownFlaws = {};
+ flaws.forEach(function(f) {
+ knownFlaws[f.id] = f;
+ addFlawRow(f, false);
+ });
+ document.getElementById('stats').textContent =
+ '历史数据 | 共 ' + flaws.length + ' 条 | taskId='+taskId;
+ } catch(e) {
+ log('加载失败: '+e.message, 'err');
+ }
+}
+
+function addFlawRow(flaw, isNew) {
+ var tbody = document.getElementById('flawTable');
+ // Remove empty placeholder
+ if (tbody.querySelector('td[colspan]')) { tbody.innerHTML = ''; }
+
+ var tr = document.createElement('tr');
+ if (isNew) tr.className = 'new';
+
+ var confirmedTag = flaw.confirmed
+ ? '<span class="tag confirmed">已确认</span>'
+ : '<span class="tag pending">待确认</span>';
+ var uploadedTag = flaw.uploaded
+ ? '<span class="tag uploaded">已上传</span>'
+ : '<span style="color:#484f58">未上传</span>';
+
+ var imgHtml = '-';
+ if (flaw.flawImageUrl) {
+ var imgUrl = 'http://192.168.2.57/prod-api' + flaw.flawImageUrl;
+ imgHtml = '<img class="img-thumb" src="'+imgUrl+'" onclick="event.stopPropagation();showImage(\''+imgUrl+'\')" onerror="this.style.display=\'none\'">';
+ }
+
+ var cbId = 'cb'+flaw.id;
+ tr.innerHTML =
+ '<td><input type="checkbox" id="'+cbId+'" data-id="'+flaw.id+'"></td>'+
+ '<td>'+(flaw.id||'--')+'</td>'+
+ '<td><b>'+(flaw.flawName||'--')+'</b></td>'+
+ '<td>'+(flaw.flawType||'--')+'</td>'+
+ '<td>'+(flaw.flawDistance != null ? flaw.flawDistance.toFixed(1)+'m' : '--')+'</td>'+
+ '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(flaw.flawDesc||'--')+'</td>'+
+ '<td>'+(flaw.level||'--')+'</td>'+
+ '<td>'+imgHtml+'</td>'+
+ '<td>'+confirmedTag+'</td>'+
+ '<td>'+uploadedTag+'</td>'+
+ '<td>'+(flaw.createTime||'--')+'</td>';
+
+ // Insert at top for new flaws, at bottom for historical
+ if (isNew) {
+ tbody.insertBefore(tr, tbody.firstChild);
+ } else {
+ tbody.appendChild(tr);
+ }
+}
+
+function showImage(url) {
+ document.getElementById('imgFull').src = url;
+ document.getElementById('imgModal').classList.add('show');
+}
+
+function clearTable() {
+ document.getElementById('flawTable').innerHTML =
+ '<tr><td colspan="11" style="text-align:center;padding:30px;color:#484f58">表格已清空（服务器数据未删除）</td></tr>';
+ knownFlaws = {};
+ totalNewCount = 0;
+ document.getElementById('stats').textContent = '表格已清空';
+ document.getElementById('selectAll').checked = false;
+ log('表格已清空 (UI only)', 'info');
+}
+
+function toggleSelectAll() {
+ var master = document.getElementById('selectAll');
+ var cbs = document.querySelectorAll('#flawTable input[type=checkbox]');
+ cbs.forEach(function(cb) { if (cb !== master) cb.checked = master.checked; });
+}
+
+async function deleteSelected() {
+ var cbs = document.querySelectorAll('#flawTable input[type=checkbox][data-id]:checked');
+ if (!cbs.length) { log('未选中任何故障', 'err'); return; }
+
+ var ids = [];
+ cbs.forEach(function(cb) { ids.push(cb.getAttribute('data-id')); });
+ log('删除 '+ids.length+' 条故障...', 'info');
+
+ var okCount = 0, failCount = 0;
+ for (var i = 0; i< ids.length; i++) {
+ try {
+ var res = await fetch(API + '/agv/flaw/' + ids[i], { method: 'DELETE' });
+ var data = await res.json();
+ if (data.code === 200 || data.code === 0) {
+ okCount++;
+ // Remove row from UI
+ var cb = document.getElementById('cb'+ids[i]);
+ if (cb) { var tr = cb.parentNode.parentNode; tr.remove(); }
+ delete knownFlaws[ids[i]];
+ } else {
+ failCount++;
+ log('删除 #'+ids[i]+' 失败: '+(data.msg||'HTTP '+res.status), 'err');
+ }
+ } catch(e) {
+ failCount++;
+ log('删除 #'+ids[i]+' 异常: '+e.message, 'err');
+ }
+ }
+ log('删除完成: '+okCount+' 成功, '+failCount+' 失败', okCount > 0 ? 'ok' : 'err');
+ document.getElementById('selectAll').checked = false;
+ document.getElementById('stats').textContent =
+ '剩余: '+Object.keys(knownFlaws).length+' 条';
+}</script></body></html>

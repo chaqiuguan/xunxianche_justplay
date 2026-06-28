@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>创建巡检任务</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0d1117;color:#e0e0e0;font-family:'Microsoft YaHei',Arial,sans-serif;min-height:100vh;padding:20px}
+h1{text-align:center;font-size:17px;padding:6px 0;color:#fff;margin-bottom:14px}
+.card{max-width:500px;margin:0 auto;background:#161b22;border:1px solid #21262d;border-radius:8px;padding:16px 20px}
+.card h3{font-size:13px;color:#58a6ff;margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid #21262d}
+.form-group{margin-bottom:12px}
+.form-group label{display:block;font-size:11px;color:#8b949e;margin-bottom:3px}
+.form-group label.req::after{content:' *';color:#f85149}
+.form-group input,.form-group textarea{width:100%;padding:6px 10px;border:1px solid #30363d;border-radius:4px;background:#0d1117;color:#c9d1d9;font-size:12px}
+.form-group textarea{resize:vertical;min-height:50px}
+.form-row{display:flex;gap:10px}
+.form-row>.form-group{flex:1}
+.btn-row{display:flex;gap:8px;justify-content:center;margin-top:16px}
+.btn{padding:7px 20px;border-radius:4px;cursor:pointer;font-size:12px;border:1px solid #30363d;background:transparent;color:#c9d1d9}
+.btn:hover{opacity:.85}
+.btn.create{background:#238636;border-color:#2ea043;color:#fff}
+.btn.start{background:#1f6feb;border-color:#388bfd;color:#fff}
+.result{margin-top:14px;padding:10px 14px;border-radius:4px;font-size:11px;display:none}
+.result.ok{display:block;background:rgba(35,134,54,.1);border:1px solid rgba(46,160,67,.3);color:#3fb950}
+.result.err{display:block;background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.3);color:#f85149}
+#log{margin-top:14px;background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:10px 14px;font-size:10px;line-height:1.6;font-family:Consolas,monospace;height:140px;overflow-y:auto;color:#8b949e}
+</style>
+</head>
+<body>
+<h1>巡检任务创建</h1>
+<div class="card">
+  <h3>新建任务</h3>
+  <div class="form-row">
+    <div class="form-group"><label class="req">任务名称</label><input id="taskName" maxlength="50" placeholder="例如：隧道例行巡检"></div>
+    <div class="form-group"><label>任务编号</label><input id="taskCode" maxlength="20" placeholder="留空自动生成"></div>
+  </div>
+  <div class="form-row">
+    <div class="form-group"><label class="req">起始地点</label><input id="startPos" placeholder="例如：100"></div>
+    <div class="form-group"><label class="req">任务距离 (m)</label><input id="taskTrip" placeholder="例如：500"></div>
+  </div>
+  <div class="form-row">
+    <div class="form-group"><label class="req">创建人</label><input id="creator" maxlength="10" placeholder="你的名字"></div>
+    <div class="form-group"><label class="req">执行人</label><input id="executor" maxlength="10" placeholder="执行人"></div>
+  </div>
+  <div class="form-group"><label>备注</label><textarea id="remark" maxlength="250" placeholder="可选备注"></textarea></div>
+
+  <div class="btn-row">
+    <button class="btn create" onclick="createTask(false)">保存任务</button>
+    <button class="btn start" onclick="createTask(true)">保存并启动</button>
+  </div>
+
+  <div class="result" id="result"></div>
+</div>
+<div id="log"><span style="color:#484f58">--:--:--</span> 就绪</div>
+
+<script>
+var API = 'http://192.168.2.57/prod-api';
+
+function log(msg, cls) {
+  var el = document.getElementById('log');
+  var now = new Date();
+  var ts = ('0'+now.getHours()).slice(-2)+':'+('0'+now.getMinutes()).slice(-2)+':'+('0'+now.getSeconds()).slice(-2);
+  el.innerHTML += '<div style="color:'+(cls==='ok'?'#3fb950':cls==='err'?'#f85149':cls==='info'?'#58a6ff':'#8b949e')+'"><span style="color:#484f58">'+ts+'</span> '+msg+'</div>';
+  el.scrollTop = el.scrollHeight;
+}
+
+async function createTask(andStart) {
+  var data = {
+    taskName: document.getElementById('taskName').value.trim(),
+    taskCode: document.getElementById('taskCode').value.trim(),
+    startPos: document.getElementById('startPos').value.trim(),
+    taskTrip: document.getElementById('taskTrip').value.trim(),
+    creator: document.getElementById('creator').value.trim(),
+    executor: document.getElementById('executor').value.trim(),
+    remark: document.getElementById('remark').value.trim()
+  };
+
+  // Validate
+  if (!data.taskName) { showResult('err', '请输入任务名称'); return; }
+  if (!data.startPos) { showResult('err', '请输入起始地点'); return; }
+  if (!data.taskTrip) { showResult('err', '请输入任务距离'); return; }
+  if (!data.creator) { showResult('err', '请输入创建人'); return; }
+  if (!data.executor) { showResult('err', '请输入执行人'); return; }
+
+  log('正在创建任务...', 'info');
+  try {
+    var res = await fetch(API + '/agv/task', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    var d = await res.json();
+    if (d.code === 200 || d.code === 0) {
+      var taskId = d.data ? d.data.id : (data.id || '?');
+      log('任务创建成功 id='+taskId, 'ok');
+      showResult('ok', '任务已创建 (ID: '+taskId+')');
+
+      if (andStart && taskId) {
+        log('正在启动任务...', 'info');
+        var r2 = await fetch(API + '/agv/task/start/' + taskId, { method: 'POST' });
+        var d2 = await r2.json();
+        if (d2.code === 200 || d2.code === 0) {
+          log('任务已启动!', 'ok');
+          showResult('ok', '任务已创建并启动 (ID: '+taskId+')');
+        } else {
+          log('启动失败: '+(d2.msg||''), 'err');
+          showResult('ok', '任务已创建但启动失败 (ID: '+taskId+')。请手动启动');
+        }
+      }
+    } else {
+      log('创建失败: '+(d.msg||'HTTP '+res.status), 'err');
+      showResult('err', '创建失败: '+(d.msg||''));
+    }
+  } catch(e) {
+    log('异常: '+e.message, 'err');
+    showResult('err', '网络异常: '+e.message);
+  }
+}
+
+function showResult(type, msg) {
+  var el = document.getElementById('result');
+  el.textContent = msg;
+  el.className = 'result ' + type;
+}
+</script>
+</body>
+</html>

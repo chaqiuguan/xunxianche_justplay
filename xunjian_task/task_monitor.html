@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>巡检监控</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0d1117;color:#e0e0e0;font-family:'Microsoft YaHei',Arial,sans-serif;min-height:100vh;padding:20px}
+h1{text-align:center;font-size:18px;color:#fff;margin-bottom:16px}
+
+/* Big status circle */
+.status-circle{width:120px;height:120px;border-radius:50%;margin:0 auto 10px;display:flex;align-items:center;justify-content:center;border:4px solid;transition:all .4s}
+.status-circle.inspecting{background:rgba(35,134,54,.15);border-color:#3fb950;box-shadow:0 0 30px rgba(35,134,54,.3);animation:pulseGreen 2s infinite}
+.status-circle.pending{background:rgba(210,153,29,.15);border-color:#d2991d;box-shadow:0 0 20px rgba(210,153,29,.2)}
+.status-circle.idle{background:rgba(139,148,158,.05);border-color:#30363d}
+.status-circle.error{background:rgba(248,81,73,.1);border-color:#f85149}
+.status-icon{font-size:42px}
+.status-label{text-align:center;font-size:15px;font-weight:bold;margin-bottom:4px}
+.status-sub{text-align:center;font-size:11px;color:#8b949e;margin-bottom:20px}
+
+@keyframes pulseGreen{
+  0%,100%{box-shadow:0 0 20px rgba(35,134,54,.2)}
+  50%{box-shadow:0 0 45px rgba(35,134,54,.5)}
+}
+
+/* Cards */
+.card{max-width:500px;margin:0 auto 14px;background:#161b22;border:1px solid #21262d;border-radius:8px;padding:16px 20px}
+.card h3{font-size:13px;color:#58a6ff;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #21262d}
+
+/* Info rows */
+.info-row{display:flex;justify-content:space-between;padding:3px 0;font-size:12px}
+.info-row .lbl{color:#8b949e}
+.info-row .val{color:#c9d1d9;font-weight:500}
+.info-row .val.ok{color:#3fb950}
+.info-row .val.warn{color:#d2991d}
+.info-row .val.err{color:#f85149}
+
+/* Task list */
+.task-item{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;margin-bottom:4px;background:#0d1117;border-radius:4px;border:1px solid #21262d;font-size:11px}
+.task-item .task-name{color:#c9d1d9;font-weight:500;flex:1}
+.task-item .task-status{padding:2px 8px;border-radius:3px;font-size:10px;font-weight:bold}
+.task-status.巡视中{background:rgba(35,134,54,.2);color:#3fb950}
+.task-status.待巡视{background:rgba(210,153,29,.2);color:#d2991d}
+.task-status.待上传{background:rgba(31,111,235,.2);color:#58a6ff}
+.task-status.已完成{background:rgba(139,148,158,.1);color:#8b949e}
+
+/* Log */
+#log{margin-top:14px;background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:10px 14px;font-size:10px;line-height:1.6;font-family:Consolas,monospace;height:120px;overflow-y:auto;color:#8b949e}
+
+/* Refresh indicator */
+.refresh-dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:5px;background:#3fb950;animation:fadeDot 1.5s infinite}
+@keyframes fadeDot{0%,100%{opacity:1}50%{opacity:.2}}
+
+.btn-row{display:flex;gap:8px;justify-content:center;margin-top:12px}
+.btn{padding:6px 18px;border-radius:4px;cursor:pointer;font-size:11px;border:1px solid #30363d;background:transparent;color:#c9d1d9}
+.btn:hover{opacity:.85}
+.btn.primary{background:#1f6feb;border-color:#388bfd;color:#fff}
+</style>
+</head>
+<body>
+<h1>巡检任务监控</h1>
+
+<!-- Status circle -->
+<div id="statusCircle" class="status-circle idle">
+  <span class="status-icon" id="statusIcon">⏳</span>
+</div>
+<div class="status-label" id="statusLabel">检测中...</div>
+<div class="status-sub" id="statusSub"><span class="refresh-dot"></span>轮询中 (2s)</div>
+
+<!-- Current task card -->
+<div class="card" id="taskCard" style="display:none">
+  <h3 id="cardTitle">当前任务</h3>
+  <div id="taskInfo"></div>
+  <div class="btn-row" style="margin-top:14px">
+    <button class="btn primary" onclick="endCurrentTask(false)">完成巡检</button>
+    <button class="btn" onclick="endCurrentTask(true)">中止巡检</button>
+  </div>
+</div>
+
+<!-- Task list -->
+<div class="card">
+  <h3>任务列表</h3>
+  <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+    <input type="date" id="filterStart" onchange="applyFilter()" style="flex:1;min-width:110px;padding:5px 8px;border:1px solid #30363d;border-radius:4px;background:#0d1117;color:#c9d1d9;font-size:11px">
+    <span style="color:#484f58;font-size:11px">至</span>
+    <input type="date" id="filterEnd" onchange="applyFilter()" style="flex:1;min-width:110px;padding:5px 8px;border:1px solid #30363d;border-radius:4px;background:#0d1117;color:#c9d1d9;font-size:11px">
+    <button class="btn" onclick="clearFilter()" style="font-size:10px;padding:5px 10px">清除</button>
+  </div>
+  <div id="taskList" style="color:#484f58;font-size:11px">加载中...</div>
+  <div id="taskCount" style="text-align:center;margin-top:8px;font-size:10px;color:#484f58"></div>
+</div>
+
+<!-- AGV Status -->
+<div class="card">
+  <h3>AGV 运行状态</h3>
+  <div class="info-row"><span class="lbl">连接</span><span class="val err" id="agvConn">--</span></div>
+  <div class="info-row"><span class="lbl">行驶</span><span class="val" id="agvRun">--</span></div>
+  <div class="info-row"><span class="lbl">距离</span><span class="val" id="agvPos">--</span></div>
+  <div class="info-row"><span class="lbl">系统时间</span><span class="val" id="agvTime">--</span></div>
+</div>
+
+<div id="log"></div>
+
+<script>
+var API = 'http://192.168.2.57/prod-api';
+var currentTaskId = null;
+var currentTaskStatus = '';
+var allTasks = [];     // full task list from server
+var filteredTasks = []; // after date filter
+
+function log(msg, cls) {
+  var el = document.getElementById('log');
+  var now = new Date();
+  var ts = ('0'+now.getHours()).slice(-2)+':'+('0'+now.getMinutes()).slice(-2)+':'+('0'+now.getSeconds()).slice(-2);
+  el.innerHTML += '<div style="color:'+(cls==='ok'?'#3fb950':cls==='err'?'#f85149':cls==='info'?'#58a6ff':'#8b949e')+'"><span style="color:#484f58">'+ts+'</span> '+msg+'</div>';
+  el.scrollTop = el.scrollHeight;
+}
+
+function setStatus(type, label, icon) {
+  var circle = document.getElementById('statusCircle');
+  circle.className = 'status-circle ' + type;
+  document.getElementById('statusIcon').textContent = icon;
+  document.getElementById('statusLabel').textContent = label;
+}
+
+async function poll() {
+  // 1. Poll task list
+  try {
+    var res = await fetch(API + '/agv/task/list?pageNum=1&pageSize=100', { signal: AbortSignal.timeout(5000) });
+    var d = await res.json();
+    if (d.code === 200 || d.code === 0) {
+      allTasks = d.rows || d.data || [];
+      applyFilter();
+
+      // Find active task (always from full list, not filtered)
+      var inspecting = allTasks.find(function(r){ return r.taskStatus === '巡视中'; });
+      var pending = allTasks.find(function(r){ return r.taskStatus === '待巡视'; });
+      var uploading = allTasks.find(function(r){ return r.taskStatus === '待上传'; });
+
+      if (inspecting) {
+        setStatus('inspecting', '正在巡检', '🚗');
+        document.getElementById('statusSub').textContent = '任务: ' + (inspecting.taskName || inspecting.taskCode || '--');
+        currentTaskId = inspecting.id;
+        currentTaskStatus = '巡视中';
+        renderCurrentTask(inspecting);
+        document.getElementById('taskCard').style.display = '';
+        document.getElementById('cardTitle').textContent = '正在巡检';
+      } else if (pending) {
+        setStatus('pending', '有待执行任务', '📋');
+        document.getElementById('statusSub').textContent = '任务: ' + (pending.taskName || pending.taskCode || '--');
+        currentTaskId = pending.id;
+        currentTaskStatus = '待巡视';
+        renderCurrentTask(pending);
+        document.getElementById('taskCard').style.display = '';
+        document.getElementById('cardTitle').textContent = '待执行任务';
+      } else if (uploading) {
+        setStatus('pending', '等待数据上传', '📤');
+        document.getElementById('statusSub').textContent = '任务: ' + (uploading.taskName || uploading.taskCode || '--');
+        currentTaskId = uploading.id;
+        currentTaskStatus = '待上传';
+        renderCurrentTask(uploading);
+        document.getElementById('taskCard').style.display = '';
+        document.getElementById('cardTitle').textContent = '待上传';
+      } else {
+        setStatus('idle', '无活跃任务', '💤');
+        document.getElementById('statusSub').innerHTML = '<span class="refresh-dot"></span>轮询中 (2s)';
+        currentTaskId = null;
+        currentTaskStatus = '';
+        document.getElementById('taskCard').style.display = 'none';
+      }
+    }
+  } catch(e) {
+    setStatus('error', '无法连接', '⚠️');
+    document.getElementById('statusSub').textContent = '网络异常: ' + e.message;
+  }
+
+  // 2. Poll heartbeat
+  try {
+    var hb = await fetch(API + '/agv/movement/heartbeat', { signal: AbortSignal.timeout(3000) });
+    var hd = await hb.json();
+    var data = hd.data || hd;
+    document.getElementById('agvConn').textContent = '已连接';
+    document.getElementById('agvConn').className = 'val ok';
+    document.getElementById('agvRun').textContent = data.isRunning ? '行驶中' : '停止';
+    document.getElementById('agvRun').className = data.isRunning ? 'val ok' : 'val';
+    document.getElementById('agvPos').textContent = (data.currentPosition || 0).toFixed(2) + ' m';
+    document.getElementById('agvPos').className = 'val';
+    document.getElementById('agvTime').textContent = data.sysTime || '--';
+    document.getElementById('agvTime').className = 'val';
+  } catch(e) {
+    document.getElementById('agvConn').textContent = '断连';
+    document.getElementById('agvConn').className = 'val err';
+    document.getElementById('agvRun').textContent = '--';
+    document.getElementById('agvRun').className = 'val';
+    document.getElementById('agvPos').textContent = '--';
+    document.getElementById('agvPos').className = 'val';
+    document.getElementById('agvTime').textContent = '--';
+    document.getElementById('agvTime').className = 'val';
+  }
+}
+
+function renderCurrentTask(t) {
+  var html = '';
+  html += '<div class="info-row"><span class="lbl">任务名称</span><span class="val ok">' + (t.taskName || '--') + '</span></div>';
+  html += '<div class="info-row"><span class="lbl">任务编号</span><span class="val">' + (t.taskCode || '--') + '</span></div>';
+  html += '<div class="info-row"><span class="lbl">执行人</span><span class="val">' + (t.executor || '--') + '</span></div>';
+  html += '<div class="info-row"><span class="lbl">创建人</span><span class="val">' + (t.creator || '--') + '</span></div>';
+  html += '<div class="info-row"><span class="lbl">起始位置</span><span class="val">' + (t.startPos || '--') + '</span></div>';
+  html += '<div class="info-row"><span class="lbl">任务距离</span><span class="val">' + (t.taskTrip || '--') + ' m</span></div>';
+  html += '<div class="info-row"><span class="lbl">轮次</span><span class="val">第 ' + (t.round || 1) + ' 轮</span></div>';
+  html += '<div class="info-row"><span class="lbl">任务状态</span><span class="val ' + (t.taskStatus === '巡视中' ? 'ok' : 'warn') + '">' + (t.taskStatus || '--') + '</span></div>';
+  if (t.execTime) html += '<div class="info-row"><span class="lbl">执行时间</span><span class="val">' + t.execTime + '</span></div>';
+  if (t.endTime) html += '<div class="info-row"><span class="lbl">结束时间</span><span class="val">' + t.endTime + '</span></div>';
+  if (t.remark) html += '<div class="info-row"><span class="lbl">备注</span><span class="val">' + t.remark + '</span></div>';
+  document.getElementById('taskInfo').innerHTML = html;
+}
+
+function renderTaskList(rows) {
+  if (!rows || rows.length === 0) {
+    document.getElementById('taskList').innerHTML = '<span style="color:#484f58">暂无匹配任务</span>';
+    document.getElementById('taskCount').textContent = '';
+    return;
+  }
+  var countText = '共 ' + rows.length + ' 条';
+  if (rows.length < allTasks.length) {
+    countText += '（全部 ' + allTasks.length + ' 条，已筛选）';
+  }
+  document.getElementById('taskCount').textContent = countText;
+  var html = '';
+  rows.sort(function(a,b){ return (b.id||0) - (a.id||0); });
+  for (var i = 0; i < rows.length; i++) {
+    var t = rows[i];
+    html += '<div class="task-item">';
+    html += '<span class="task-name">' + (t.taskName || '未命名') + ' <span style="color:#484f58;font-weight:normal">(' + (t.executor||'--') + ')</span></span>';
+    html += '<span class="task-status ' + t.taskStatus + '">' + (t.taskStatus || '未知') + '</span>';
+    html += '</div>';
+  }
+  document.getElementById('taskList').innerHTML = html;
+}
+
+function applyFilter() {
+  var startStr = document.getElementById('filterStart').value;
+  var endStr = document.getElementById('filterEnd').value;
+  if (!startStr && !endStr) {
+    filteredTasks = allTasks.slice();
+    renderTaskList(filteredTasks);
+    return;
+  }
+  var start = startStr ? new Date(startStr + 'T00:00:00') : null;
+  var end = endStr ? new Date(endStr + 'T23:59:59') : null;
+
+  filteredTasks = allTasks.filter(function(t) {
+    var dateStr = t.execTime || t.createTime || t.endTime || '';
+    if (!dateStr) return false;
+    var d = new Date(dateStr);
+    if (isNaN(d.getTime())) return false;
+    if (start && d < start) return false;
+    if (end && d > end) return false;
+    return true;
+  });
+  renderTaskList(filteredTasks);
+}
+
+function clearFilter() {
+  document.getElementById('filterStart').value = '';
+  document.getElementById('filterEnd').value = '';
+  filteredTasks = allTasks.slice();
+  renderTaskList(filteredTasks);
+}
+
+async function endCurrentTask(isAbort) {
+  if (!currentTaskId) return;
+  var label = isAbort ? '中止' : '完成';
+  if (!confirm('确定要' + label + '当前任务吗？')) return;
+  log('正在' + label + '任务 id=' + currentTaskId + '...', 'info');
+  try {
+    var url = API + '/agv/task/end/' + currentTaskId + '?isAbort=' + isAbort;
+    var res = await fetch(url, { method: 'POST' });
+    var d = await res.json();
+    if (d.code === 200 || d.code === 0) {
+      log('任务已' + label, 'ok');
+      poll(); // immediate refresh
+    } else {
+      log(label + '失败: ' + (d.msg || ''), 'err');
+    }
+  } catch(e) {
+    log('异常: ' + e.message, 'err');
+  }
+}
+
+// Start polling
+poll();
+setInterval(poll, 2000);
+log('监控已启动', 'info');
+</script>
+</body>
+</html>

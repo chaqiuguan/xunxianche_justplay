@@ -291,6 +291,8 @@ a{color:#409eff;text-decoration:none;cursor:pointer}a:hover{text-decoration:unde
           <div class="field"><label>创建人</label><input type="text" id="sCreator" placeholder="请输入"></div>
           <div class="field"><label>执行人</label><input type="text" id="sExecutor" placeholder="请输入"></div>
           <div class="field"><label>状态</label><select id="sStatus"><option value="">全部</option><option value="待巡视">待巡视</option><option value="巡视中">巡视中</option><option value="待上传">待上传</option><option value="已完成">已完成</option></select></div>
+          <div class="field"><label>执行时间从</label><input type="date" id="sDateFrom"></div>
+          <div class="field"><label>至</label><input type="date" id="sDateTo"></div>
           <button class="btn btn-primary" onclick="searchTasks()">🔍 搜索</button>
           <button class="btn" onclick="resetSearch()">重置</button>
         </div>
@@ -709,9 +711,13 @@ $('#checkList').addEventListener('click', function(e) {
 // ==================== VIEW 2: TASKS ====================
 async function loadTasks() {
   showLoading('加载任务列表...');
+  var dateFrom = $('#sDateFrom').value;
+  var dateTo = $('#sDateTo').value;
+  State.tasks.dateFilterActive = !!(dateFrom || dateTo);
+
   const params = {
-    pageNum: State.tasks.pageNum,
-    pageSize: State.tasks.pageSize,
+    pageNum: State.tasks.dateFilterActive ? 1 : State.tasks.pageNum,
+    pageSize: State.tasks.dateFilterActive ? 500 : State.tasks.pageSize,
     ...State.searchParams
   };
   const res = await api('GET', '/agv/task/list', params);
@@ -726,27 +732,48 @@ async function loadTasks() {
   renderTaskTable();
 }
 
+function filterTasksByDate(rows) {
+  const from = $('#sDateFrom').value;
+  const to = $('#sDateTo').value;
+  if(!from && !to) return rows;
+  return rows.filter(function(t) {
+    var dateStr = t.execTime || t.createTime || t.endTime || '';
+    if(!dateStr) return false;
+    var datePart = String(dateStr).substring(0, 10);
+    if(from && datePart < from) return false;
+    if(to && datePart > to) return false;
+    return true;
+  });
+}
+
 function renderTaskTable() {
   const tbody = $('#taskTableBody');
-  if(!State.tasks.list.length) {
-    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px;color:#909399">暂无数据</td></tr>';
+  const filtered = filterTasksByDate(State.tasks.list);
+  if(!filtered.length) {
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px;color:#909399">暂无匹配数据</td></tr>';
   } else {
-    tbody.innerHTML = State.tasks.list.map((t,i) => `
-      <tr>
-        <td>${(State.tasks.pageNum-1)*State.tasks.pageSize + i + 1}</td>
-        <td><a onclick="viewTaskDetail(${t.id})">${t.taskCode||'--'}</a></td>
-        <td>${t.taskName||'--'}</td>
-        <td>${t.startPos||'--'} 米</td>
-        <td>${t.taskTrip||'--'} 米</td>
-        <td>${t.creator||'--'}</td>
-        <td>${t.executor||'--'}</td>
-        <td>${fmtDate(t.execTime)}</td>
-        <td>${statusTag(t.taskStatus)}</td>
-        <td>${getTaskActions(t)}</td>
-      </tr>`).join('');
+    tbody.innerHTML = filtered.map(function(t,i) {
+      var rowNum = i + 1;
+      return '<tr>'+
+        '<td>'+rowNum+'</td>'+
+        '<td><a onclick="viewTaskDetail('+t.id+')">'+(t.taskCode||'--')+'</a></td>'+
+        '<td>'+(t.taskName||'--')+'</td>'+
+        '<td>'+(t.startPos||'--')+' 米</td>'+
+        '<td>'+(t.taskTrip||'--')+' 米</td>'+
+        '<td>'+(t.creator||'--')+'</td>'+
+        '<td>'+(t.executor||'--')+'</td>'+
+        '<td>'+fmtDate(t.execTime)+'</td>'+
+        '<td>'+statusTag(t.taskStatus)+'</td>'+
+        '<td>'+getTaskActions(t)+'</td>'+
+      '</tr>';
+    }).join('');
   }
-  $('#taskCount').textContent = `共 ${State.tasks.total} 条记录，每页 ${State.tasks.pageSize} 条`;
-  renderTaskPagination();
+  var filterInfo = '';
+  if(State.tasks.dateFilterActive) {
+    filterInfo = '（已加载全部 '+State.tasks.list.length+' 条，日期筛选: '+filtered.length+' 条）';
+  }
+  $('#taskCount').textContent = '共 '+State.tasks.total+' 条记录' + filterInfo;
+  renderTaskPagination(filtered);
 }
 
 function getTaskActions(t) {
@@ -774,7 +801,12 @@ function getTaskActions(t) {
   return actions.join(' ');
 }
 
-function renderTaskPagination() {
+function renderTaskPagination(filtered) {
+  if(State.tasks.dateFilterActive) {
+    var count = filtered ? filtered.length : State.tasks.list.length;
+    $('#taskPagination').innerHTML = '<span class="info">已加载全部数据，筛选出 '+count+' 条</span>';
+    return;
+  }
   const total = State.tasks.total;
   const ps = State.tasks.pageSize;
   const pn = State.tasks.pageNum;
@@ -789,6 +821,7 @@ function renderTaskPagination() {
 }
 
 function goPage(n) {
+  if(State.tasks.dateFilterActive) return;
   const totalPages = Math.ceil(State.tasks.total/State.tasks.pageSize)||1;
   if(n<1||n>totalPages) return;
   State.tasks.pageNum = n;
@@ -809,7 +842,9 @@ function searchTasks() {
 
 function resetSearch() {
   $('#sTaskCode').value='';$('#sCreator').value='';$('#sExecutor').value='';$('#sStatus').value='';
+  $('#sDateFrom').value='';$('#sDateTo').value='';
   State.searchParams = {}; State.tasks.pageNum = 1;
+  State.tasks.dateFilterActive = false;
   loadTasks();
 }
 
