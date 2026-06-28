@@ -14,10 +14,7 @@
         <el-main class="task-main">
           <!-- 视频播放器 -->
           <div class="video-stream">
-            <!-- FLV (mpegts) 模式 -->
-            <video v-if="playerType === 'flv'" ref="videoRef" autoplay muted playsinline style="width:100%;height:100%;object-fit:contain"></video>
-            <!-- EasyPlayer 模式 -->
-            <div v-else ref="easyPlayerContainer" style="width:100%;height:100%"></div>
+            <video ref="videoRef" autoplay muted playsinline style="width:100%;height:100%;object-fit:contain"></video>
             <div class="video-overlay" v-if="videoOverlay !== '--'">{{ videoOverlay }}</div>
           </div>
 
@@ -55,12 +52,6 @@
             <span>控制台</span>
           </template>
           <div class="control-btns">
-            <div style="width:100%;text-align:center">
-              <el-radio-group v-model="playerType" @change="onPlayerTypeChange" size="small">
-                <el-radio-button value="flv">FLV (mpegts)</el-radio-button>
-                <el-radio-button value="easyplayer">EasyPlayer</el-radio-button>
-              </el-radio-group>
-            </div>
             <el-select
               v-model="currentCamera"
               placeholder="请选择摄像头"
@@ -168,7 +159,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   Document,
@@ -191,7 +182,6 @@ const taskCode = ref(route.query.taskCode || '')
 // ---- 变量 ----
 const videoRef = ref(null)        // 替代 playerRef
 const currentCamera = ref('1')
-const playerType = ref('flv')      // ★ 'flv' | 'easyplayer'
 let flvPlayer = null              // 替代 playerInstance
 const videoOverlay = ref('--')    // 新增：显示速率/分辨率
 
@@ -201,18 +191,6 @@ const camUrls = {
   '2': '/flv/cam2',
   '3': '/flv/cam3',
   '4': '/flv/cam4',
-}
-
-// ---- EasyPlayer 相关 ----
-const easyPlayerContainer = ref(null)   // EasyPlayer 容器
-let easyPlayerInstance = null           // EasyPlayer 实例
-
-// EasyPlayer 摄像头 ID（巡检车服务器设备 ID）
-const easyCamIds = {
-  '1': 'PbemokuspQHD5',
-  '2': 'Psh0GyTpkiSdC',
-  '3': 'Pk8FmQHNeOqSx',
-  '4': 'PaKHUtvPpcrZq',
 }
 
 // ---- 连接函数（替代 initPlayer）----
@@ -260,64 +238,9 @@ function connectFlv(url) {
   flvPlayer.load()
 }
 
-// ---- EasyPlayer 连接函数（新技术） ----
-async function connectEasyPlayer(camNum) {
-  // 1. 销毁旧实例
-  if (easyPlayerInstance) { try { easyPlayerInstance.destroy() } catch(e) {} easyPlayerInstance = null }
-
-  const container = easyPlayerContainer.value
-  if (!container) { console.error('EasyPlayer 容器未找到'); return }
-
-  // 2. 确保 EasyPlayer 全局可用
-  const EasyPlayer = window.EasyPlayerPro || window['EasyPlayer-pro']
-  if (!EasyPlayer) {
-    console.error('EasyPlayer 未加载')
-    videoOverlay.value = 'EasyPlayer 未加载'
-    return
-  }
-
-  // 3. 构造播放器（原版方式：不传 url）
-  const player = new EasyPlayer(container, {
-    isLive: true,
-    bufferTime: 0.2,
-    stretch: true,
-    MSE: false,
-    WCS: false,
-    hasAudio: true,
-  })
-  easyPlayerInstance = player
-
-  // 4. 播放
-  const deviceId = easyCamIds[camNum]
-  const url = window.location.origin + '/webrtc-api/live/' + deviceId + '_01.flv'
-
-  try {
-    await player.play(url)
-    console.log('EasyPlayer 已连接 cam' + camNum)
-  } catch (err) {
-    console.error('EasyPlayer play 失败:', err)
-    videoOverlay.value = 'EasyPlayer 播放失败'
-  }
-}
-
-async function onPlayerTypeChange() {
-  // 销毁旧播放器
-  if (flvPlayer) { try { flvPlayer.destroy() } catch(e) {} flvPlayer = null }
-  if (easyPlayerInstance) { try { easyPlayerInstance.destroy() } catch(e) {} easyPlayerInstance = null }
-  videoOverlay.value = '--'
-  // 短暂延迟确保 DOM 更新
-  await nextTick()
-  // 用新模式重连当前摄像头
-  onCameraChange(currentCamera.value)
-}
-
 function onCameraChange(val) {
-  if (playerType.value === 'easyplayer') {
-    connectEasyPlayer(val)
-  } else {
-    const url = camUrls[val]
-    if (url) connectFlv(url)
-  }
+  const url = camUrls[val]
+  if (url) connectFlv(url)
 }
 
 // -------------------- 车辆状态 --------------------
@@ -389,7 +312,6 @@ async function onAbort() {
 function cleanupAndLeave() {
   if (timer) clearInterval(timer)
   if (flvPlayer) { try { flvPlayer.destroy() } catch(e) {} flvPlayer = null }
-  if (easyPlayerInstance) { try { easyPlayerInstance.destroy() } catch(e) {} easyPlayerInstance = null }
   router.push('/taskList')
 }
 
@@ -476,9 +398,10 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  if (timer) clearInterval(timer)
-  if (flvPlayer) { try { flvPlayer.destroy() } catch (e) { /* ignore */ } }
-  if (easyPlayerInstance) { try { easyPlayerInstance.destroy() } catch (e) { /* ignore */ } }
+  clearInterval(timer)
+  if (flvPlayer) {
+    try { flvPlayer.destroy() } catch (e) { /* ignore */ }
+  }
 })
 </script>
 
