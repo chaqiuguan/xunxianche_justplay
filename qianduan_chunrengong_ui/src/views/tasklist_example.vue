@@ -56,6 +56,96 @@ const uploadForm = reactive({
   file: null,
 })
 
+// ===== 新增任务 =====
+const createDialogVisible = ref(false)
+const createForm = reactive({
+  taskName: '',
+  taskCode: '',
+  startPos: '',
+  taskTrip: '',
+  creator: '',
+  executor: '',
+  remark: '',
+})
+function openCreateDialog() {
+  Object.assign(createForm, { taskName: '', taskCode: '', startPos: '', taskTrip: '', creator: '', executor: '', remark: '' })
+  createDialogVisible.value = true
+}
+
+async function createTask(andStart) {
+  if (!createForm.taskName) { ElMessage.warning('请输入任务名称'); return }
+  if (!createForm.startPos) { ElMessage.warning('请输入起始地点'); return }
+  if (!createForm.taskTrip) { ElMessage.warning('请输入任务距离'); return }
+  if (!createForm.creator) { ElMessage.warning('请输入创建人'); return }
+  if (!createForm.executor) { ElMessage.warning('请输入执行人'); return }
+
+  createDialogVisible.value = false
+
+  try {
+    const body = {
+      taskName: createForm.taskName.trim(),
+      taskCode: createForm.taskCode.trim(),
+      startPos: createForm.startPos.trim(),
+      taskTrip: createForm.taskTrip.trim(),
+      creator: createForm.creator.trim(),
+      executor: createForm.executor.trim(),
+      remark: createForm.remark.trim(),
+    }
+    const res = await fetch(API + '/agv/task', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    const data = await res.json()
+    if (data.code === 200 || data.code === 0) {
+      let foundId = null
+
+      if (andStart) {
+        ElMessage.success('任务创建成功，正在查找...')
+        // 回查任务列表，按 taskName + creator 匹配
+        try {
+          const lookup = await fetch(API + '/agv/task/list?pageNum=1&pageSize=999')
+          const lookupData = await lookup.json()
+          if (lookupData.code === 200 || lookupData.code === 0) {
+            const rows = lookupData.rows || []
+            const matches = rows.filter(r => {
+              const sameName = r.taskName === body.taskName
+              const sameCreator = r.creator === body.creator
+              const sameCode = body.taskCode ? r.taskCode === body.taskCode : true
+              return sameName && sameCreator && sameCode
+            })
+            if (matches.length === 1) {
+              foundId = matches[0].id
+            } else if (matches.length > 1) {
+              // 重名：取 id 最大（最新创建）
+              foundId = matches.reduce((max, r) => r.id > max ? r.id : max, 0)
+            }
+          }
+        } catch (e) { /* 回查失败继续 */ }
+
+        if (foundId) {
+          const r2 = await fetch(API + '/agv/task/start/' + foundId, { method: 'POST' })
+          const d2 = await r2.json()
+          if (d2.code === 200 || d2.code === 0) {
+            ElMessage.success('任务已启动 (ID: ' + foundId + ')')
+          } else {
+            ElMessage.error('启动失败: ' + (d2.msg || ''))
+          }
+        } else {
+          ElMessage.warning('任务已创建但未找到ID，请手动启动')
+        }
+      } else {
+        ElMessage.success('任务创建成功')
+      }
+      fetchTaskList()
+    } else {
+      ElMessage.error('创建失败: ' + (data.msg || ''))
+    }
+  } catch (e) {
+    ElMessage.error('网络异常: ' + e.message)
+  }
+}
+
 // ===== 日期过滤（本地） =====
 function filterByDate(rows) {
   const from = searchForm.dateFrom
@@ -76,39 +166,80 @@ async function fetchTaskList() {
   loading.value = true
   try {
     const hasDateFilter = !!(searchForm.dateFrom || searchForm.dateTo)
-    dateFilterActive.value = hasDateFilter
+    const isFirstPage = pagination.currentPage === 1
 
-    // 日期筛选：一次拉全部数据（pageSize=500, pageNum=1）
-    const effectivePageSize = hasDateFilter ? 500 : pagination.pageSize
-    const effectivePageNum = hasDateFilter ? 1 : pagination.currentPage
+    // 日期筛选模式：全量拉取不分页
+    if (hasDateFilter) {
+      dateFilterActive.value = true
+      const params = new URLSearchParams({ pageNum: '1', pageSize: '500' })
+      if (searchForm.taskCode) params.append('taskCode', searchForm.taskCode)
+      if (searchForm.creator) params.append('creator', searchForm.creator)
+      if (searchForm.executor) params.append('executor', searchForm.executor)
+      if (searchForm.taskStatus) params.append('taskStatus', searchForm.taskStatus)
 
+      const res = await fetch(API + '/agv/task/list?' + params.toString())
+      const data = await res.json()
+      if (data.code === 200 || data.code === 0) {
+        const rows = data.rows || []
+        pagination.total = data.total || 0
+        allRows.value = rows
+        const filtered = filterByDate(rows)
+        tableData.value = filtered
+        statsText.value = '共 ' + (data.total || 0) + ' 条 | 日期筛选: ' + filtered.length + ' 条（已加载全部）'
+      } else {
+        ElMessage.error(data.msg || '查询失败')
+      }
+      loading.value = false
+      return
+    }
+
+    // 非日期模式
+    dateFilterActive.value = false
+    allRows.value = []
+
+    // 构造当前页请求参数
     const params = new URLSearchParams({
-      pageNum: String(effectivePageNum),
-      pageSize: String(effectivePageSize),
+      pageNum: String(pagination.currentPage),
+      pageSize: String(pagination.pageSize),
     })
     if (searchForm.taskCode) params.append('taskCode', searchForm.taskCode)
     if (searchForm.creator) params.append('creator', searchForm.creator)
     if (searchForm.executor) params.append('executor', searchForm.executor)
     if (searchForm.taskStatus) params.append('taskStatus', searchForm.taskStatus)
 
-    const res = await fetch(API + '/agv/task/list?' + params.toString())
-    const data = await res.json()
-    if (data.code === 200 || data.code === 0) {
-      const rows = data.rows || []
-      pagination.total = data.total || 0
+    // ★ 第 1 页：并行拉取巡视中任务 + 当前页数据
+    if (isFirstPage) {
+      const [resPatrol, resNormal] = await Promise.all([
+        fetch(API + '/agv/task/list?pageNum=1&pageSize=100&taskStatus=巡视中'),
+        fetch(API + '/agv/task/list?' + params.toString()),
+      ])
+      const [dataA, dataB] = await Promise.all([resPatrol.json(), resNormal.json()])
 
-      if (hasDateFilter) {
-        allRows.value = rows
-        const filtered = filterByDate(rows)
-        tableData.value = filtered
-        statsText.value = '共 ' + (data.total || 0) + ' 条 | 日期筛选: ' + filtered.length + ' 条（已加载全部）'
+      if (dataB.code === 200 || dataB.code === 0) {
+        const patrolRows = (dataA.code === 200 || dataA.code === 0) ? (dataA.rows || []) : []
+        const normalRows = dataB.rows || []
+
+        // 去重：从 B 中排除已在 A 中的 id
+        const patrolIds = new Set(patrolRows.map(r => r.id))
+        const filteredB = normalRows.filter(r => !patrolIds.has(r.id))
+
+        tableData.value = [...patrolRows, ...filteredB]
+        pagination.total = dataB.total || 0
+        statsText.value = '共 ' + (dataB.total || 0) + ' 条 | 第 ' + pagination.currentPage + ' 页 | 巡视中置顶'
       } else {
-        allRows.value = []
-        tableData.value = rows
-        statsText.value = '共 ' + (data.total || 0) + ' 条 | 第 ' + pagination.currentPage + ' 页'
+        ElMessage.error(dataB.msg || '查询失败')
       }
     } else {
-      ElMessage.error(data.msg || '查询失败')
+      // 第 2 页以后：正常请求
+      const res = await fetch(API + '/agv/task/list?' + params.toString())
+      const data = await res.json()
+      if (data.code === 200 || data.code === 0) {
+        tableData.value = data.rows || []
+        pagination.total = data.total || 0
+        statsText.value = '共 ' + (data.total || 0) + ' 条 | 第 ' + pagination.currentPage + ' 页'
+      } else {
+        ElMessage.error(data.msg || '查询失败')
+      }
     }
   } catch (e) {
     console.error('查询任务列表失败:', e)
@@ -368,6 +499,7 @@ onMounted(() => {
     <!-- 操作栏 -->
     <div class="toolbar">
       <el-button type="primary" :icon="Upload" plain @click="onUpload">任务数据上传</el-button>
+      <el-button type="success" plain @click="openCreateDialog">新增任务</el-button>
     </div>
 
     <!-- ========== 任务表格 ========== -->
@@ -474,6 +606,16 @@ onMounted(() => {
           type="primary"
           @click="dialogVisible = false; router.push({ path: '/execute_example', query: { id: currentTask.id, taskCode: currentTask.taskCode } })"
         >进入详情页</el-button>
+        <el-button
+          v-if="currentTask && currentTask.taskStatus === '已完成'"
+          type="primary"
+          @click="dialogVisible = false; router.push({ path: '/task-history', query: { id: currentTask.id, taskCode: currentTask.taskCode } })"
+        >查看历史</el-button>
+        <el-button
+          v-if="currentTask && currentTask.taskStatus === '待上传'"
+          type="primary"
+          @click="dialogVisible = false; router.push({ path: '/task-history', query: { id: currentTask.id, taskCode: currentTask.taskCode } })"
+        >查看历史</el-button>
       </template>
     </el-dialog>
 
@@ -498,6 +640,59 @@ onMounted(() => {
       <template #footer>
         <el-button @click="uploadDialogVisible = false">取消</el-button>
         <el-button type="primary" @click="submitUpload">确认上传</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- ========== 新增任务弹窗 ========== -->
+    <el-dialog v-model="createDialogVisible" title="新增任务" width="500px" top="10vh">
+      <el-form :model="createForm" label-width="80px" size="small">
+        <el-row :gutter="12">
+          <el-col :span="12">
+            <el-form-item label="任务名称" required>
+              <el-input v-model="createForm.taskName" maxlength="50" placeholder="例如：隧道例行巡检" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="任务编号">
+              <el-input v-model="createForm.taskCode" maxlength="20" placeholder="留空自动生成" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="12">
+          <el-col :span="12">
+            <el-form-item label="起始地点" required>
+              <el-input v-model="createForm.startPos" placeholder="例如：100" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="任务距离" required>
+              <el-input v-model="createForm.taskTrip" placeholder="例如：500">
+                <template #append>m</template>
+              </el-input>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="12">
+          <el-col :span="12">
+            <el-form-item label="创建人" required>
+              <el-input v-model="createForm.creator" maxlength="10" placeholder="你的名字" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="执行人" required>
+              <el-input v-model="createForm.executor" maxlength="10" placeholder="执行人" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-form-item label="备注">
+          <el-input v-model="createForm.remark" type="textarea" maxlength="250" placeholder="可选备注" :rows="2" />
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="createDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="createTask(false)">保存任务</el-button>
+        <el-button type="success" @click="createTask(true)">保存并启动</el-button>
       </template>
     </el-dialog>
 
@@ -583,5 +778,22 @@ onMounted(() => {
   padding: 12px 20px;
   background: #fff;
   flex-shrink: 0;
+}
+
+.create-result {
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.create-result.ok {
+  background: rgba(103, 194, 58, 0.1);
+  border: 1px solid rgba(103, 194, 58, 0.3);
+  color: #67c23a;
+}
+.create-result.err {
+  background: rgba(245, 108, 108, 0.1);
+  border: 1px solid rgba(245, 108, 108, 0.3);
+  color: #f56c6c;
 }
 </style>

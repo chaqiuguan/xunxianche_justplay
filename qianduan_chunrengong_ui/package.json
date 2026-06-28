@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently \"vite\" \"cd stream-server && start_stream.bat\"",
+    "dev:frontend": "vite",
+    "stream": "cd stream-server && start_stream.bat",
     "build": "vite build",
     "preview": "vite preview"
   },
@@ -16,6 +18,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.7",
+    "concurrently": "^10.0.3",
     "vite": "^8.0.16",
     "vite-plugin-vue-devtools": "^8.1.2"
   },

@@ -37,3 +37,7 @@ __screenshots__/
 
 # Vite
 *.timestamp-*-*.mjs
+
+# Stream server
+stream-server/ffmpeg.exe
+stream-server/hls_output/

@@ -134,7 +134,7 @@
           <el-table :data="flawList" border style="width: 100%">
             <el-table-column prop="flawName" label="故障名称" width="120" />
             <el-table-column prop="flawType" label="故障类型" width="100" />
-            <el-table-column prop="flawPosition" label="故障位置" />
+            <el-table-column prop="flawDistance" label="距离(m)" width="90" />
             <template #empty>
               <span style="color: #909399">暂无数据</span>
             </template>
@@ -160,7 +160,7 @@
 
 <script setup>
 import { ref, reactive, onMounted, onUnmounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import {
   Document,
   Clock,
@@ -169,10 +169,13 @@ import {
   SuccessFilled,
   QuestionFilled,
 } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 // -------------------- 路由参数 --------------------
 const route = useRoute()
+const router = useRouter()
 const taskId = ref(route.query.id || '')
+const taskCode = ref(route.query.taskCode || '')
 
 // -------------------- 视频播放器 --------------------
 
@@ -260,14 +263,56 @@ const flawList = ref([])
 const flawDialogVisible = ref(false)
 
 // -------------------- 按钮操作 --------------------
-function onComplete() {
-  console.log('完成巡检, taskId:', taskId.value)
-  // TODO: 调用 API
+async function onComplete() {
+  try {
+    await ElMessageBox.confirm('确认完成本次巡检？巡检数据将被保存。', '提示', {
+      confirmButtonText: '确定完成',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+  } catch { return }
+
+  try {
+    const res = await fetch(API + '/agv/task/end/' + taskId.value + '?isAbort=false', { method: 'POST' })
+    const data = await res.json()
+    if (data.code === 200 || data.code === 0) {
+      ElMessage.success('巡检已完成')
+      cleanupAndLeave()
+    } else {
+      ElMessage.error(data.msg || '操作失败')
+    }
+  } catch (e) {
+    ElMessage.error('网络错误，操作失败')
+  }
 }
 
-function onAbort() {
-  console.log('终止巡检, taskId:', taskId.value)
-  // TODO: 调用 API
+async function onAbort() {
+  try {
+    await ElMessageBox.confirm('确认中止本次巡检？任务将退出巡视状态，不会标记为完成。', '提示', {
+      confirmButtonText: '确定中止',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+  } catch { return }
+
+  try {
+    const res = await fetch(API + '/agv/task/end/' + taskId.value + '?isAbort=true', { method: 'POST' })
+    const data = await res.json()
+    if (data.code === 200 || data.code === 0) {
+      ElMessage.success('巡检已中止')
+      cleanupAndLeave()
+    } else {
+      ElMessage.error(data.msg || '操作失败')
+    }
+  } catch (e) {
+    ElMessage.error('网络错误，操作失败')
+  }
+}
+
+function cleanupAndLeave() {
+  if (timer) clearInterval(timer)
+  if (flvPlayer) { try { flvPlayer.destroy() } catch(e) {} flvPlayer = null }
+  router.push('/taskList')
 }
 
 const API = '/prod-api'
@@ -310,7 +355,7 @@ function onMoveChange(action) {
 let timer = null
 
 async function fetchTaskData() {
-try {
+  try {
     const res = await fetch('/prod-api/agv/movement/heartbeat')
     const data = await res.json()
     if (data.code === 200 || data.code === 0) {
@@ -324,12 +369,32 @@ try {
   }
 }
 
+async function fetchFlawStats() {
+  if (!taskId.value) return
+  try {
+    const res = await fetch('/prod-api/agv/flaw/list?taskId=' + taskId.value + '&pageNum=1&pageSize=999')
+    const data = await res.json()
+    if (data.code === 200 || data.code === 0) {
+      // 服务端不支持 taskId 过滤，客户端自行过滤
+      const rows = (data.rows || []).filter(f => f.taskId === Number(taskId.value))
+      flawList.value = rows
+      taskInfo.totalFlaws = rows.length
+      taskInfo.confirmedFlaws = rows.filter(f => f.confirmed).length
+      taskInfo.unconfirmedFlaws = rows.filter(f => !f.confirmed).length
+    }
+  } catch (e) {
+    console.error('获取缺陷统计失败:', e)
+  }
+}
+
 // -------------------- 生命周期 --------------------
 onMounted(() => {
+  taskInfo.taskCode = taskCode.value || '---'
   fetchTaskData()
+  fetchFlawStats()
   onCameraChange('1')
-  // 每2秒刷新车辆状态
-  timer = setInterval(fetchTaskData, 2000)
+  // 每2秒刷新车辆状态 + 缺陷统计
+  timer = setInterval(() => { fetchTaskData(); fetchFlawStats() }, 2000)
 })
 
 onUnmounted(() => {
